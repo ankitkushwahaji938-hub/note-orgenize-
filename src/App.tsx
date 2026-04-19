@@ -102,92 +102,111 @@ export default function App() {
 
     setStatus('ORGANIZING...');
     
-    // STEP 4, 8: Helper functions for shortening and capitalization
-    const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-    
-    const shorten = (s: string) => {
-      // Step 4: Shorten sentences (Smart cut by comma)
-      return s.split(',')[0].trim();
+    // STEP 1: Sentence Scoring (Importance Evaluation)
+    const scoreSentence = (s: string) => {
+      let score = 0;
+      const low = s.toLowerCase();
+
+      // Strong signals
+      if (low.includes("name") || low.includes("called")) score += 3;
+      if (low.includes("was") || low.includes("had") || low.includes("known")) score += 2;
+      if (low.includes("important") || low.includes("main") || low.includes("key")) score += 2;
+
+      // Story/action signals
+      if (low.includes("noticed") || low.includes("said") || low.includes("went") || low.includes("started")) score += 2;
+
+      // Penalize noise/short sentences
+      if (low.includes("all those with their backs")) score -= 3;
+      if (s.length < 40) score -= 1;
+
+      return score;
     };
 
-    const limitWords = (s: string) => {
-      // Rule 8: Max word limit
-      const words = s.split(' ');
-      if (words.length <= 12) return s;
-      return words.slice(0, 12).join(' ') + '...';
+    // STEP 2: Smart Compression (Maintain Meaning)
+    const smartCompress = (s: string) => {
+      const words = s.split(/\s+/);
+
+      // Max 18 words limit
+      let resultWords = words.length > 18 ? words.slice(0, 18) : words;
+      
+      // Ensure it has at least 8 words if possible
+      if (resultWords.length < 8 && words.length >= 8) {
+        resultWords = words.slice(0, 12);
+      }
+
+      let result = resultWords.join(" ").trim();
+      if (!result.endsWith('.') && !result.endsWith('!') && !result.endsWith('?')) {
+        result += ".";
+      }
+      
+      // Capitalize first letter
+      return result.charAt(0).toUpperCase() + result.slice(1);
     };
 
-    const refineText = (txt: string) => {
-      // Basic grammar fixes from previous turn + cleaning
-      const grammarMap: Record<string, string> = {
-        'dont': "don't", 'doesnt': "doesn't", 'cant': "can't",
-        'wont': "won't", 'isnt': "isn't", 'arent': "aren't",
-        'i': "I"
-      };
-      let clean = txt.replace(/\b(dont|doesnt|cant|wont|isnt|arent|i)\b/gi, (m) => grammarMap[m.toLowerCase()] || m);
-      return cap(clean.replace(/\s+/g, ' ').trim());
+    // STEP 3: Dialogue Removal
+    const removeDialogue = (s: string) => {
+      if (s.includes('"')) return null;
+      return s;
     };
 
-    // STEP 5: Category Detection (The powerful keyword-based part)
+    // STEP 4: Category Detection (Smarter grouping)
     const getCategory = (s: string) => {
       const lower = s.toLowerCase();
-      if (lower.includes("name") || lower.includes("called") || lower.includes("is a") || lower.includes("refer")) 
+      if (lower.includes("name") || lower.includes("called") || lower.includes("refer")) 
         return "📌 INTRODUCTION";
-      if (lower.includes("had") || lower.includes("was") || lower.includes("known") || lower.includes("feature")) 
-        return "📌 TRAITS & CHARACTERISTICS";
-      if (lower.includes("lived") || lower.includes("life") || lower.includes("born") || lower.includes("stay")) 
-        return "📌 LIFESTYLE & BACKGROUND";
-      if (lower.includes("went") || lower.includes("noticed") || lower.includes("said") || lower.includes("happened")) 
-        return "📌 INCIDENTS & EVENTS";
-      if (lower.includes("use") || lower.includes("work") || lower.includes("how") || lower.includes("method"))
-        return "📌 USAGE & MECHANISM";
-      return "📌 KEY TAKEAWAYS";
+      if (lower.includes("had") || lower.includes("known") || lower.includes("was") || lower.includes("feature")) 
+        return "📌 TRAITS";
+      if (lower.includes("lived") || lower.includes("life") || lower.includes("background")) 
+        return "📌 LIFESTYLE";
+      if (lower.includes("noticed") || lower.includes("said") || lower.includes("went") || lower.includes("confront") || lower.includes("happened")) 
+        return "📌 INCIDENT";
+      
+      return null; 
     };
 
     const newBlocks: Block[] = [];
     let pNum = 0;
 
-    // STEP 1: Text Clean (Extra spaces and line breaks)
+    // Preliminary Clean
     const sanitizedText = inputText.replace(/\n+/g, " ").replace(/\s+/g, " ").trim();
 
     if (organizeMode === 'SIMPLE') {
       const sentences = sanitizedText.split(/(?<=[.!?])\s+(?=[A-Z0-9])/).filter(s => s.trim().length > 5);
       sentences.forEach((s: string) => {
         pNum++;
-        newBlocks.push({ type: 'point', text: refineText(s), num: pNum });
+        newBlocks.push({ type: 'point', text: smartCompress(s), num: pNum });
       });
     } else {
-      // STEP 2 & 3: Sentence Split & Filter
-      let sentences = sanitizedText.split(/(?<=[.?!])\s+/);
-      
-      // Rule 3: Filter (remove short sentences, dialogues, useless words)
-      sentences = sentences.filter(s => {
-        const trimmed = s.trim();
-        if (trimmed.length < 30) return false;
-        if (trimmed.includes('"')) return false; // Remove quotes/dialogue
-        return true;
-      });
-
-      // STEP 6: Grouping
+      const sentences = sanitizedText.split(/(?<=[.?!])\s+/);
       const groups: Record<string, string[]> = {};
       
-      sentences.forEach(s => {
-        const cat = getCategory(s);
+      sentences.forEach(rawS => {
+        const s = rawS.trim();
+        if (!s) return;
+
+        const noDialogue = removeDialogue(s);
+        if (!noDialogue) return;
+
+        const score = scoreSentence(s);
+        if (score < 1) return;
+
+        const compressed = smartCompress(s);
+        let cat = getCategory(s);
+        
+        if (!cat) {
+          if (score >= 3) cat = "📌 KEY HIGHLIGHTS";
+          else return; 
+        }
+
         if (!groups[cat]) groups[cat] = [];
-        
-        // STEP 4 & 8: Shorten, Limit, Cap
-        let point = shorten(s);
-        point = limitWords(point);
-        point = refineText(point);
-        
-        // EXTRA SMART: Duplicate removal per category
-        if (!groups[cat].includes(point)) {
-          groups[cat].push(point);
+
+        if (!groups[cat].includes(compressed)) {
+          if (compressed.split(" ").length >= 6) {
+             groups[cat].push(compressed);
+          }
         }
       });
 
-      // STEP 7: Output Format (Convert grouping to Block format)
-      // We sort categories to keep Introduction first if it exists
       const sortedCats = Object.keys(groups).sort((a, b) => {
         if (a.includes("INTRODUCTION")) return -1;
         if (b.includes("INTRODUCTION")) return 1;
@@ -196,7 +215,6 @@ export default function App() {
 
       sortedCats.forEach(cat => {
         const points = groups[cat];
-        // Rule 4: Remove empty sections (handled by loop over existing keys)
         if (points.length > 0) {
           newBlocks.push({ type: 'heading', text: cat });
           points.forEach(p => {
@@ -206,21 +224,7 @@ export default function App() {
       });
     }
 
-    // Filter out headings without content (double safety)
-    const finalBlocks: Block[] = [];
-    newBlocks.forEach((b, idx) => {
-      if (b.type === 'heading') {
-        const hasContent = newBlocks.slice(idx + 1).find(next => {
-          if (next.type === 'heading') return null; // End of current section
-          return true; // Found content
-        });
-        if (hasContent) finalBlocks.push(b);
-      } else {
-        finalBlocks.push(b);
-      }
-    });
-
-    // Related Blog Links
+    const finalBlocks = [...newBlocks];
     if (options.includeBlogLinks && links.length > 0) {
       finalBlocks.push({ type: 'heading', text: '🔗 RECENT FROM ANKITSTUDYPOINT' });
       const shuffled = [...links].sort(() => 0.5 - Math.random()).slice(0, 4);
@@ -231,7 +235,7 @@ export default function App() {
 
     setBlocks(finalBlocks);
     setStatus('DONE ✓');
-    showToast('Success: Algorithm-Driven Smart Notes Generated!');
+    showToast('Success: AI-Like Notes Generated!');
   };
 
   const clearAll = () => {
