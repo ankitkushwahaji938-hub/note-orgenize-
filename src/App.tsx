@@ -109,23 +109,46 @@ export default function App() {
       const t = line.trim();
       if (!t) return;
 
+      // Smart Highlighting: Highlight first few words if they look like a subject
+      const processText = (txt: string) => {
+        const words = txt.split(' ');
+        if (words.length > 5 && /^[A-Z]/.test(words[0])) {
+           // If sentence starts with Capital, bold first 2 words as "Topic"
+           return `**${words.slice(0, 2).join(' ')}** ${words.slice(2).join(' ')}`;
+        }
+        return txt;
+      };
+
       if (isH(t)) {
         newBlocks.push({ type: 'heading', text: cln(t) });
-        pNum = 0; // Reset bullet numbering per section if needed, or keep global
+        pNum = 0;
       } else if (isD(t)) {
         const m = t.match(D_PAT);
         if (m) newBlocks.push({ type: 'def', k: m[1].trim(), v: m[2].trim() });
       } else if (hasB(t) && options.points) {
         pNum++;
-        newBlocks.push({ type: 'point', text: cln(t), num: pNum });
+        newBlocks.push({ type: 'point', text: processText(cln(t)), num: pNum });
       } else if (options.points && (t.startsWith('-') || t.startsWith('*') || t.startsWith('•'))) {
          pNum++;
-         newBlocks.push({ type: 'point', text: cln(t), num: pNum });
-      } else if (options.points && t.length > 5 && t.split(' ').length <= 15) {
+         newBlocks.push({ type: 'point', text: processText(cln(t)), num: pNum });
+      } else if (options.points && t.length > 5 && t.split(' ').length <= 25) {
         pNum++;
-        newBlocks.push({ type: 'point', text: t, num: pNum });
+        newBlocks.push({ type: 'point', text: processText(t), num: pNum });
+      } else if (t.length > 80) {
+        // Splitting Paragraphs aggressively into Points
+        const sentences = t.split(/(?<=[.!?])\s+(?=[A-Z])/); 
+        if (sentences.length > 1) {
+          sentences.forEach(s => {
+            if (s.length > 10) {
+              pNum++;
+              newBlocks.push({ type: 'point', text: processText(s.trim()), num: pNum });
+            }
+          });
+        } else {
+          newBlocks.push({ type: 'plain', text: processText(t) });
+        }
       } else {
-        newBlocks.push({ type: 'plain', text: t });
+        newBlocks.push({ type: 'plain', text: processText(t) });
       }
     });
 
@@ -682,7 +705,9 @@ export default function App() {
                     {block.type === 'point' && (
                       <div className="flex items-start gap-3 pl-2 py-1 bg-white/[0.02] border border-white/[0.05] rounded-lg">
                         <span className="text-[#00e5a0] mt-1.5 font-bold">{options.numbered ? `${block.num}.` : '•'}</span>
-                        <p className="text-sm leading-relaxed">{block.text}</p>
+                        <p className="text-sm leading-relaxed" 
+                           dangerouslySetInnerHTML={{ __html: (block.text || '').replace(/\*\*(.*?)\*\*/g, '<b class="text-[#00e5a0]"> $1 </b>') }} 
+                        />
                       </div>
                     )}
                     {block.type === 'def' && (
