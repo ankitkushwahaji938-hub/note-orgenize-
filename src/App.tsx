@@ -268,23 +268,152 @@ export default function App() {
     }
   };
 
+  const getPortableHTML = () => {
+    // This generates a single HTML file using CDN for dependencies
+    // so it can be used on GitHub Pages or locally without a server.
+    const title = seo.title || 'Auto Notes Organizer | AnkitStudyPoint';
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <style>
+    body { background-color: #0d0f12; color: #e8ecf4; font-family: sans-serif; }
+    textarea { background: #0d0f12; border: 1px solid #2a3045; }
+    .btn-primary { background: #00e5a0; color: #0d0f12; }
+  </style>
+</head>
+<body class="p-4 md:p-8">
+  <div class="max-w-4xl mx-auto">
+    <header class="mb-8 border-b border-gray-800 pb-4">
+      <h1 class="text-2xl font-bold">Auto <span class="text-[#00e5a0]">Notes</span> Organizer</h1>
+      <p class="text-xs text-gray-500 uppercase tracking-widest mt-1">Portable Static Version for GitHub Pages</p>
+    </header>
+    
+    <div class="grid grid-cols-1 gap-6">
+      <textarea id="portableInput" rows="10" class="w-full rounded-xl p-4 text-sm font-mono focus:ring-1 focus:ring-[#00e5a0] outline-none" placeholder="Paste notes here..."></textarea>
+      
+      <div class="flex flex-wrap gap-3">
+        <button onclick="organizePortable()" class="btn-primary px-6 py-2 rounded-lg font-bold uppercase text-xs">Organize</button>
+        <button onclick="downloadPDFPortable()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold uppercase text-xs">Download PDF</button>
+      </div>
+
+      <div id="portableOutput" class="mt-8 space-y-4 bg-black/20 p-6 rounded-2xl border border-gray-800 hidden"></div>
+    </div>
+  </div>
+
+  <script>
+    let organizedBlocks = [];
+    
+    function organizePortable() {
+      const text = document.getElementById('portableInput').value;
+      const lines = text.split('\\n');
+      const out = document.getElementById('portableOutput');
+      out.innerHTML = '';
+      out.classList.remove('hidden');
+      organizedBlocks = [];
+
+      lines.forEach(line => {
+        const t = line.trim();
+        if(!t) return;
+        
+        let block = { type: 'plain', text: t };
+        if (t.startsWith('#')) block = { type: 'heading', text: t.replace(/^#+\\s*/, '') };
+        else if (t.includes(':') && t.length < 100) {
+          const parts = t.split(':');
+          block = { type: 'def', k: parts[0].trim(), v: parts.slice(1).join(':').trim() };
+        }
+        
+        organizedBlocks.push(block);
+        
+        const el = document.createElement('div');
+        if(block.type === 'heading') {
+          el.innerHTML = '<h2 class="text-xl font-bold text-blue-400 border-b border-blue-900 pb-1 mt-4">' + block.text + '</h2>';
+        } else if(block.type === 'def') {
+          el.innerHTML = '<div class="pl-4 border-l-2 border-orange-500 bg-orange-500/5 p-2"><strong class="text-orange-400">' + block.k + ':</strong> <span class="text-sm">' + block.v + '</span></div>';
+        } else {
+          el.innerHTML = '<p class="text-sm border-l border-gray-700 pl-4 py-1">' + t + '</p>';
+        }
+        out.appendChild(el);
+      });
+    }
+
+    async function downloadPDFPortable() {
+      if(organizedBlocks.length === 0) return alert('Organize first');
+      const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
+      const doc = await PDFDocument.create();
+      const fBold = await doc.embedFont(StandardFonts.HelveticaBold);
+      const fReg = await doc.embedFont(StandardFonts.Helvetica);
+      let page = doc.addPage([595, 842]);
+      let y = 780;
+
+      page.drawText('AnkitStudyPoint - Standardized Notes', { x: 50, y: 810, size: 10, font: fBold, color: rgb(0, 0.7, 0.5) });
+
+      organizedBlocks.forEach(b => {
+        if (y < 100) { page = doc.addPage([595, 842]); y = 780; }
+        if(b.type === 'heading') {
+          page.drawRectangle({ x: 50, y: y-5, width: 495, height: 20, color: rgb(0.9, 0.95, 1) });
+          page.drawText(b.text, { x: 55, y, size: 14, font: fBold, color: rgb(0.1, 0.4, 0.8) });
+          y -= 30;
+        } else if(b.type === 'def') {
+          page.drawText(b.k + ': ', { x: 50, y, size: 11, font: fBold });
+          page.drawText(b.v, { x: 120, y, size: 11, font: fReg });
+          y -= 20;
+        } else {
+          page.drawText(b.text.substring(0, 80), { x: 50, y, size: 10, font: fReg, color: rgb(0.3, 0.3, 0.3) });
+          y -= 15;
+        }
+      });
+
+      const pdfBytes = await doc.save();
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'organized-notes.pdf'; a.click();
+    }
+  </script>
+</body>
+</html>`;
+  };
+
+  const downloadPortableVersion = () => {
+    const html = getPortableHTML();
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'index.html';
+    a.click();
+    alert('Portable Version Downloaded! \n\nUpload this index.html to your GitHub repository to fix the blank page.');
+  };
+
   const wrapText = (text: string, font: any, size: number, maxWidth: number) => {
+    if (!text) return [''];
     const words = text.split(' ');
     const lines = [];
     let currentLine = '';
 
     words.forEach(word => {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const width = font.widthOfTextAtSize(testLine, size);
-      if (width <= maxWidth) {
-        currentLine = testLine;
-      } else {
-        lines.push(currentLine);
+      try {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const width = font.widthOfTextAtSize(testLine, size);
+        if (width <= maxWidth) {
+          currentLine = testLine;
+        } else {
+          if (currentLine) lines.push(currentLine);
+          currentLine = word;
+        }
+      } catch (e) {
+        // Fallback for weird characters
+        if (currentLine) lines.push(currentLine);
         currentLine = word;
       }
     });
-    lines.push(currentLine);
-    return lines;
+    if (currentLine) lines.push(currentLine);
+    return lines.length > 0 ? lines : [''];
   };
 
   return (
@@ -454,6 +583,13 @@ export default function App() {
               <div className="w-2 h-2 rounded-full bg-[#00e5a0]"></div> Organized Structure
             </span>
             <div className="flex gap-2">
+              <button 
+                onClick={downloadPortableVersion}
+                className="text-[10px] font-bold uppercase tracking-widest bg-orange-500/10 text-orange-400 border border-orange-500/20 px-3 py-1 rounded hover:bg-orange-500/20 flex items-center gap-1.5"
+                title="Download single HTML file for GitHub Pages"
+              >
+                <Download className="w-3 h-3" /> GitHub Version
+              </button>
               <button 
                 onClick={() => generatePDF(true)}
                 className="text-[10px] font-bold uppercase tracking-widest bg-blue-500/10 text-blue-400 border border-blue-500/20 px-3 py-1 rounded hover:bg-blue-500/20 flex items-center gap-1.5"

@@ -18,6 +18,7 @@ async function startServer() {
     try {
       const targetUrl = 'https://ankitstudypoint.blogspot.com/p/ankitstudypoint.html';
       const response = await axios.get(targetUrl, {
+        timeout: 8000,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
@@ -25,31 +26,39 @@ async function startServer() {
       const $ = cheerio.load(response.data);
       const links: { title: string; url: string }[] = [];
 
-      // Scrape post links - adjustment might be needed based on actual HTML structure
-      // Usually, Blogspot pages like this have links inside the main post body
-      $('.post-body a').each((_, element) => {
-        const title = $(element).text().trim();
-        const url = $(element).attr('href');
-        if (title && url && url.startsWith('http')) {
-          links.push({ title, url });
-        }
+      // Improved selectors for Blogspot pages
+      const contentSelectors = ['.post-body', '.entry-content', '#main-wrapper', 'article'];
+      
+      contentSelectors.forEach(selector => {
+        $(selector + ' a').each((_, element) => {
+          const title = $(element).text().trim();
+          const url = $(element).attr('href');
+          if (title && url && url.startsWith('http') && !url.includes('google.com') && !url.includes('facebook') && title.length > 3) {
+             // Avoid duplicate URLs
+             if (!links.find(l => l.url === url)) {
+               links.push({ title, url });
+             }
+          }
+        });
       });
 
-      // If no links found in post-body, try broader selectors
+      // If still no links, try any link that looks like a post
       if (links.length === 0) {
         $('a').each((_, element) => {
            const title = $(element).text().trim();
            const url = $(element).attr('href');
-           if (title && url && url.startsWith('http') && !url.includes('google.com') && !url.includes('blogspot.com/p/')) {
-             links.push({ title, url });
+           if (title && url && url.startsWith('http') && url.includes('.html') && title.length > 5) {
+             if (!links.find(l => l.url === url)) {
+               links.push({ title, url });
+             }
            }
         });
       }
 
-      res.json(links.slice(0, 50)); // Limit to top 50 links
+      res.json(links.slice(0, 100)); // Return more links
     } catch (error) {
       console.error('Scraping error:', error);
-      res.status(500).json({ error: 'Failed to fetch links' });
+      res.json([]); // Return empty list on error instead of 500 to keep client working
     }
   });
 
