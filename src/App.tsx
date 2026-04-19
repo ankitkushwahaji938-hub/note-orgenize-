@@ -36,20 +36,36 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [links, setLinks] = useState<ScrapingLink[]>([]);
-  const [userName, setUserName] = useState('');
-  const [options, setOptions] = useState({
-    headings: true,
-    points: true,
-    defs: true,
-    numbered: false,
-    seo: false,
-    includeBlogLinks: true
+  const [userName, setUserName] = useState(() => localStorage.getItem('asp_user') || '');
+  const [theme, setTheme] = useState<'DARK' | 'LIGHT'>(() => (localStorage.getItem('asp_theme') as any) || 'DARK');
+  const [organizeMode, setOrganizeMode] = useState<'SIMPLE' | 'SMART'>(() => (localStorage.getItem('asp_mode') as any) || 'SIMPLE');
+  const [options, setOptions] = useState(() => {
+    const saved = localStorage.getItem('asp_options');
+    return saved ? JSON.parse(saved) : {
+      headings: true,
+      points: true,
+      defs: true,
+      numbered: false,
+      seo: false,
+      includeBlogLinks: true
+    };
   });
-  const [seo, setSeo] = useState({
-    title: '',
-    desc: '',
-    keywords: ''
+  const [seo, setSeo] = useState(() => {
+    const saved = localStorage.getItem('asp_seo');
+    return saved ? JSON.parse(saved) : {
+      title: '',
+      desc: '',
+      keywords: ''
+    };
   });
+
+  useEffect(() => {
+    localStorage.setItem('asp_user', userName);
+    localStorage.setItem('asp_theme', theme);
+    localStorage.setItem('asp_mode', organizeMode);
+    localStorage.setItem('asp_options', JSON.stringify(options));
+    localStorage.setItem('asp_seo', JSON.stringify(seo));
+  }, [userName, theme, organizeMode, options, seo]);
   const [status, setStatus] = useState('READY');
   const [showPreview, setShowPreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -85,89 +101,85 @@ export default function App() {
     }
 
     setStatus('ORGANIZING...');
-    const lines = inputText.split('\n');
+    
+    // Simple sanitization & split into pure sentences
+    const cleanRaw = inputText.trim().replace(/\s+/g, ' ');
+    const sentences = cleanRaw.split(/(?<=[.!?])\s+(?=[A-Z0-9])/).filter(s => s.trim().length > 5);
     const newBlocks: Block[] = [];
     let pNum = 0;
 
-    // Enhanced patterns
-    const H_PAT = [
-      /^([A-Z][A-Za-z\s\-\/]{2,50})\s*:?\s*$/, 
-      /^(\d+[\.\)]\s*.{3,60})$/, 
-      /^[A-Z\s]{4,50}$/, 
-      /^#{1,3}\s+(.+)$/,
-      /^[0-9]+\.\s+[A-Z].+/
-    ];
-    const D_PAT = /^([A-Za-z0-9][^:]{1,40})\s*:\s*(.{2,})$/;
-    const B_RE = [/^[-\u2022*\u25BA\u25B8\u2192\u2713\u2717]\s+/, /^\d+[\.\)]\s+/];
-
-    const isH = (l: string) => options.headings && (H_PAT.some(p => p.test(l.trim())) || l.startsWith('#'));
-    const isD = (l: string) => options.defs && D_PAT.test(l.trim());
-    const hasB = (l: string) => B_RE.some(p => p.test(l.trim()));
-    const cln = (l: string) => l.trim().replace(/^[-\u2022*\u25BA\u25B8\u2192\u2713\u2717]\s+/, '').replace(/^\d+[\.\)]\s+/, '').replace(/^#+\s*/, '');
-
-    lines.forEach(line => {
-      const t = line.trim();
-      if (!t) return;
-
-      // Smart Highlighting: Highlight first few words if they look like a subject
-      const processText = (txt: string) => {
-        const words = txt.split(' ');
-        if (words.length > 5 && /^[A-Z]/.test(words[0])) {
-           // If sentence starts with Capital, bold first 2 words as "Topic"
-           return `**${words.slice(0, 2).join(' ')}** ${words.slice(2).join(' ')}`;
-        }
-        return txt;
-      };
-
-      if (isH(t)) {
-        newBlocks.push({ type: 'heading', text: cln(t) });
-        pNum = 0;
-      } else if (isD(t)) {
-        const m = t.match(D_PAT);
-        if (m) newBlocks.push({ type: 'def', k: m[1].trim(), v: m[2].trim() });
-      } else if (hasB(t) && options.points) {
+    if (organizeMode === 'SIMPLE') {
+      // Logic for Simple Mode: One sentence per point, bold first 2 words
+      sentences.forEach(s => {
         pNum++;
-        newBlocks.push({ type: 'point', text: processText(cln(t)), num: pNum });
-      } else if (options.points && (t.startsWith('-') || t.startsWith('*') || t.startsWith('•'))) {
-         pNum++;
-         newBlocks.push({ type: 'point', text: processText(cln(t)), num: pNum });
-      } else if (options.points && t.length > 5 && t.split(' ').length <= 25) {
-        pNum++;
-        newBlocks.push({ type: 'point', text: processText(t), num: pNum });
-      } else if (t.length > 80) {
-        // Splitting Paragraphs aggressively into Points
-        const sentences = t.split(/(?<=[.!?])\s+(?=[A-Z])/); 
-        if (sentences.length > 1) {
-          sentences.forEach(s => {
-            if (s.length > 10) {
-              pNum++;
-              newBlocks.push({ type: 'point', text: processText(s.trim()), num: pNum });
-            }
+        const words = s.split(' ');
+        const text = words.length > 3 ? `**${words.slice(0, 2).join(' ')}** ${words.slice(2).join(' ')}` : s;
+        newBlocks.push({ type: 'point', text, num: pNum });
+      });
+    } else {
+      // Logic for SMART MODE: Keyword Extraction & Semantic Grouping
+      const stopWords = new Set(['the', 'and', 'with', 'this', 'that', 'they', 'their', 'from', 'also', 'have', 'been', 'were', 'will', 'your', 'about', 'some', 'there', 'what', 'where']);
+      
+      const keywordFreq: Record<string, number> = {};
+      const kwToSentences: Record<string, string[]> = {};
+
+      sentences.forEach(s => {
+        const words: string[] = s.toLowerCase().match(/\b\w{4,}\b/g) || [];
+        const unique = Array.from(new Set(words)).filter(w => !stopWords.has(w));
+        unique.forEach((w: string) => {
+          keywordFreq[w] = (keywordFreq[w] || 0) + 1;
+          if (!kwToSentences[w]) kwToSentences[w] = [];
+          kwToSentences[w].push(s);
+        });
+      });
+
+      // Select top 4-5 themes
+      const themes = Object.entries(keywordFreq)
+        .filter(([_, count]) => count > 1)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
+
+      const used = new Set<string>();
+
+      if (themes.length > 0) {
+        themes.forEach(([kw, _]: [string, number]) => {
+          newBlocks.push({ type: 'heading', text: `📌 ${kw.toUpperCase()} CONTEXT` });
+          const matches = (kwToSentences[kw] || []).filter(s => !used.has(s)).slice(0, 3);
+          matches.forEach(s => {
+            used.add(s);
+            const regex = new RegExp(`(${kw})`, 'gi');
+            newBlocks.push({ type: 'point', text: s.replace(regex, '**$1**'), num: ++pNum });
           });
-        } else {
-          newBlocks.push({ type: 'plain', text: processText(t) });
+        });
+
+        const remaining = sentences.filter(s => !used.has(s)).slice(0, 5);
+        if (remaining.length > 0) {
+          newBlocks.push({ type: 'heading', text: '📌 KEY OBSERVATIONS' });
+          remaining.forEach(s => newBlocks.push({ type: 'point', text: s.trim(), num: ++pNum }));
         }
       } else {
-        newBlocks.push({ type: 'plain', text: processText(t) });
+        // Fallback if no recurring keywords: Split into "Main Topic" vs "Secondary Ideas"
+        newBlocks.push({ type: 'heading', text: '📌 MAIN THEME' });
+        sentences.slice(0, 2).forEach(s => newBlocks.push({ type: 'point', text: s, num: ++pNum }));
+        if (sentences.length > 2) {
+          newBlocks.push({ type: 'heading', text: '📌 SUPPORTING DETAILS' });
+          sentences.slice(2, 8).forEach(s => newBlocks.push({ type: 'point', text: s, num: ++pNum }));
+        }
       }
-    });
+    }
 
-    // Add Blogspot links with proper branding
+    // Append Blog links
     if (options.includeBlogLinks && links.length > 0) {
-      newBlocks.push({ type: 'heading', text: 'Related Posts from AnkitStudyPoint' });
-      // Take only top 10 relevant links or random mix
-      const shuffled = [...links].slice(0, 15);
+      newBlocks.push({ type: 'heading', text: '🔗 RECENT POSTS FROM ANKITSTUDYPOINT' });
+      const shuffled = [...links].sort(() => 0.5 - Math.random()).slice(0, 5);
       shuffled.forEach(link => {
         newBlocks.push({ type: 'link', text: link.title, url: link.url });
       });
     }
 
     setBlocks(newBlocks);
-    setTimeout(() => {
-      setStatus('DONE ✓');
-      const out = document.getElementById('outputArea');
-      if (out) out.scrollTop = 0;
-    }, 400);
+    setStatus('DONE ✓');
+    showToast('Organized in Smart Mode!');
   };
 
   const clearAll = () => {
@@ -312,11 +324,12 @@ export default function App() {
     let content = '';
     if (type === 'text') {
       blocks.forEach(b => {
-        if (b.type === 'heading') content += `\n== ${b.text?.toUpperCase()} ==\n\n`;
-        else if (b.type === 'point') content += `  ${options.numbered ? `${b.num}. ` : '- '}${b.text}\n`;
+        const cleanTxt = (b.text || '').replace(/\*\*/g, ''); // Remove bold markdown for plain text copy
+        if (b.type === 'heading') content += `\n📌 ${cleanTxt.toUpperCase()}\n\n`;
+        else if (b.type === 'point') content += `  ${options.numbered ? `${b.num}. ` : '• '}${cleanTxt}\n`;
         else if (b.type === 'def') content += `  ${b.k}: ${b.v}\n`;
-        else if (b.type === 'link') content += `  Link: ${b.text} (${b.url})\n`;
-        else content += `${b.text}\n`;
+        else if (b.type === 'link') content += `  🔗 ${b.text} (${b.url})\n`;
+        else content += `${cleanTxt}\n`;
       });
     } else {
       content = buildFullSEOHTML();
@@ -638,28 +651,44 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0d0f12] text-[#e8ecf4] font-sans selection:bg-[#00e5a0]/30">
+    <div className={`min-h-screen transition-colors duration-300 font-sans selection:bg-[#00e5a0]/30 ${
+      theme === 'DARK' ? 'bg-[#0d0f12] text-[#e8ecf4]' : 'bg-gray-50 text-gray-900'
+    }`}>
       {/* Grid Pattern Background */}
-      <div className="fixed inset-0 pointer-events-none opacity-[0.03] z-0" 
-           style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h40v40H0z' fill='none'/%3E%3Cpath d='M40 40H0V0h40v40zM1 1h38v38H1V1z' fill='%23ffffff'/%3E%3C/svg%3E")` }}>
+      <div className={`fixed inset-0 pointer-events-none z-0 ${theme === 'DARK' ? 'opacity-[0.03]' : 'opacity-[0.05]'}`} 
+           style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h40v40H0z' fill='none'/%3E%3Cpath d='M40 40H0V0h40v40zM1 1h38v38H1V1z' fill='%23666666'/%3E%3C/svg%3E")` }}>
       </div>
 
-      <header className="relative z-10 border-bottom border-[#2a3045] bg-[#0a0c0f]/80 backdrop-blur-md sticky top-0">
+      <header className={`relative z-10 border-b backdrop-blur-md sticky top-0 ${
+        theme === 'DARK' ? 'border-[#2a3045] bg-[#0a0c0f]/80' : 'border-gray-200 bg-white/80'
+      }`}>
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#00e5a0]/10 border border-[#00e5a0]/20 rounded-xl flex items-center justify-center">
+            <div className={`w-10 h-10 border rounded-xl flex items-center justify-center ${
+              theme === 'DARK' ? 'bg-[#00e5a0]/10 border-[#00e5a0]/20' : 'bg-[#00e5a0]/10 border-[#00e5a0]/30'
+            }`}>
               <FileText className="text-[#00e5a0] w-6 h-6" />
             </div>
             <div>
-              <h1 className="font-mono font-bold text-xl tracking-tight">Auto <span className="text-[#00e5a0]">Notes</span> Organizer</h1>
-              <p className="text-[10px] text-[#7a8499] uppercase tracking-widest font-mono">Professional Study Tool by AnkitStudyPoint</p>
+              <h1 className="font-mono font-bold text-xl tracking-tight">ASP <span className="text-[#00e5a0]">Smart</span> Notes</h1>
+              <p className="text-[10px] text-[#7a8499] uppercase tracking-widest font-mono">Knowledge Management by AnkitStudyPoint</p>
             </div>
           </div>
-          <div className="hidden md:flex items-center gap-4 text-xs font-mono">
-            <span className="text-[#7a8499]">Status:</span>
-            <span className={`px-2 py-0.5 rounded-full border ${status.includes('DONE') ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-[#2a3045] border-[#2a3045] text-[#7a8499]'}`}>
-              {status}
-            </span>
+          <div className="flex items-center gap-4">
+             <button 
+                onClick={() => setTheme(theme === 'DARK' ? 'LIGHT' : 'DARK')}
+                className={`p-2 rounded-lg transition-colors border ${
+                  theme === 'DARK' ? 'bg-[#1c2030] border-[#2a3045] hover:bg-[#2a3045]' : 'bg-white border-gray-200 hover:bg-gray-100'
+                }`}
+             >
+                {theme === 'DARK' ? '☀️' : '🌙'}
+             </button>
+             <div className="hidden md:flex items-center gap-4 text-xs font-mono">
+                <span className="text-[#7a8499]">Status:</span>
+                <span className={`px-2 py-0.5 rounded-full border ${status.includes('DONE') ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-[#2a3045] border-[#2a3045] text-[#7a8499]'}`}>
+                  {status}
+                </span>
+              </div>
           </div>
         </div>
       </header>
@@ -667,18 +696,37 @@ export default function App() {
       <main className="relative z-10 max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left Panel: Input */}
         <div className="flex flex-col gap-6">
-          <section className="bg-[#1c2030] border border-[#2a3045] rounded-2xl overflow-hidden flex flex-col shadow-2xl">
-            <div className="px-5 py-3 bg-[#151820] border-b border-[#2a3045] flex items-center justify-between">
+          <section className={`border rounded-2xl overflow-hidden flex flex-col shadow-2xl transition-colors ${
+            theme === 'DARK' ? 'bg-[#1c2030] border-[#2a3045]' : 'bg-white border-gray-200'
+          }`}>
+            <div className={`px-5 py-3 border-b flex items-center justify-between ${
+              theme === 'DARK' ? 'bg-[#151820] border-[#2a3045]' : 'bg-gray-50 border-gray-200'
+            }`}>
               <span className="font-mono text-[10px] font-bold tracking-widest uppercase flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-blue-500"></div> Input Raw Data
+                <div className="w-2 h-2 rounded-full bg-blue-500"></div> Raw Input Paragraph
               </span>
-              <span className="text-[10px] text-[#7a8499]">{inputText.length} characters</span>
+              <div className="flex gap-2">
+                 <button 
+                    onClick={() => setOrganizeMode('SIMPLE')}
+                    className={`text-[9px] px-2 py-0.5 rounded font-bold border transition-all ${
+                      organizeMode === 'SIMPLE' ? 'bg-blue-500 text-white border-blue-500' : 'text-gray-500 border-gray-300'
+                    }`}
+                 >SIMPLE</button>
+                 <button 
+                    onClick={() => setOrganizeMode('SMART')}
+                    className={`text-[9px] px-2 py-0.5 rounded font-bold border transition-all ${
+                      organizeMode === 'SMART' ? 'bg-[#00e5a0] text-[#0d0f12] border-[#00e5a0]' : 'text-gray-500 border-gray-300'
+                    }`}
+                 >SMART</button>
+              </div>
             </div>
             
             <div className="p-5 flex-1 flex flex-col gap-4">
               <textarea 
-                className="w-full h-80 bg-[#0d0f12] border border-[#2a3045] rounded-xl p-4 font-mono text-sm leading-relaxed resize-none focus:outline-none focus:border-[#00e5a0]/50 transition-colors"
-                placeholder="Paste your raw notes here... headers will be detected automatically."
+                className={`w-full h-80 border rounded-xl p-4 font-mono text-sm leading-relaxed resize-none focus:outline-none transition-all ${
+                  theme === 'DARK' ? 'bg-[#0d0f12] border-[#2a3045] focus:border-[#00e5a0]/50' : 'bg-gray-50 border-gray-300 focus:border-blue-400'
+                }`}
+                placeholder="Paste your paragraph here. In SMART mode, we will extract themes and group points automatically."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
               />
@@ -717,15 +765,17 @@ export default function App() {
             </div>
           </section>
 
-          <section className="bg-[#1c2030] border border-[#2a3045] rounded-2xl p-5 shadow-xl">
+          <section className={`border rounded-2xl p-5 shadow-xl transition-colors ${
+            theme === 'DARK' ? 'bg-[#1c2030] border-[#2a3045]' : 'bg-white border-gray-200'
+          }`}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <Settings className="w-4 h-4 text-[#7a8499]" />
+                <Settings className={`w-4 h-4 ${theme === 'DARK' ? 'text-[#7a8499]' : 'text-gray-400'}`} />
                 <h3 className="font-mono text-xs font-bold uppercase tracking-widest">Configuration</h3>
               </div>
               <div className="flex items-center gap-1.5 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
                 <div className={`w-1.5 h-1.5 rounded-full ${blogLinksStatus === 'READY' ? 'bg-green-400' : 'bg-yellow-400'}`}></div>
-                <span className="text-[9px] font-mono font-bold text-blue-400">BLOG SYNC: {blogLinksStatus}</span>
+                <span className="text-[9px] font-mono font-bold text-blue-400">SYNC: {blogLinksStatus}</span>
               </div>
             </div>
             
@@ -828,62 +878,68 @@ export default function App() {
         </div>
 
         {/* Right Panel: Output */}
-        <section className="bg-[#1c2030] border border-[#2a3045] rounded-2xl overflow-hidden flex flex-col shadow-2xl h-fit">
-          <div className="px-5 py-3 bg-[#151820] border-b border-[#2a3045] flex items-center justify-between">
+        <section className={`border rounded-2xl overflow-hidden flex flex-col shadow-2xl h-fit transition-colors ${
+          theme === 'DARK' ? 'bg-[#1c2030] border-[#2a3045]' : 'bg-white border-gray-200'
+        }`}>
+          <div className={`px-5 py-3 border-b flex items-center justify-between ${
+            theme === 'DARK' ? 'bg-[#151820] border-[#2a3045]' : 'bg-gray-50 border-gray-200'
+          }`}>
             <span className="font-mono text-[10px] font-bold tracking-widest uppercase flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-[#00e5a0]"></div> Organized Structure
+              <div className="w-2 h-2 rounded-full bg-[#00e5a0]"></div> Knowledge View ({organizeMode})
             </span>
             <div className="flex gap-2">
               <button 
                 onClick={downloadPortableVersion}
-                className="text-[10px] font-bold uppercase tracking-widest bg-orange-500/10 text-orange-400 border border-orange-500/20 px-3 py-1 rounded hover:bg-orange-500/20 flex items-center gap-1.5"
-                title="Download single HTML file for GitHub Pages"
-              >
-                <Download className="w-3 h-3" /> GitHub Version
-              </button>
+                className="text-[9px] font-bold uppercase border px-2 py-1 rounded transition-colors bg-orange-500/10 text-orange-400 border-orange-500/20 hover:bg-orange-500/20"
+              >Portable</button>
               <button 
                 onClick={() => generatePDF(true)}
-                className="text-[10px] font-bold uppercase tracking-widest bg-blue-500/10 text-blue-400 border border-blue-500/20 px-3 py-1 rounded hover:bg-blue-500/20 flex items-center gap-1.5"
-              >
-                <Eye className="w-3 h-3" /> Preview
-              </button>
+                className="text-[9px] font-bold uppercase border px-2 py-1 rounded transition-colors bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20"
+              >Preview</button>
             </div>
           </div>
 
-          <div className="p-6 max-h-[600px] overflow-y-auto custom-scrollbar bg-[#0d0f12]">
+          <div className={`p-6 max-h-[600px] overflow-y-auto custom-scrollbar transition-colors ${
+            theme === 'DARK' ? 'bg-[#0d0f12]' : 'bg-white'
+          }`}>
             {blocks.length === 0 ? (
               <div className="h-40 flex flex-col items-center justify-center text-[#7a8499] gap-3">
                 <Search className="w-10 h-10 opacity-20" />
-                <p className="text-sm">Organize some notes to see the magic</p>
+                <p className="text-sm">Ready to organize your ideas.</p>
               </div>
             ) : (
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-5">
                 {blocks.map((block, idx) => (
                   <motion.div 
-                    initial={{ x: -10, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    transition={{ delay: idx * 0.05 }}
+                    initial={{ y: 10, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: idx * 0.03 }}
                     key={idx}
                   >
                     {block.type === 'heading' && (
-                      <div className="mt-4 first:mt-0 pb-1 border-b border-[#2a3045] flex items-center gap-3">
-                        <span className="bg-[#00e5a0]/10 text-[#00e5a0] text-[8px] font-bold border border-[#00e5a0]/20 px-1.5 rounded uppercase">Topic</span>
-                        <h2 className="text-lg font-bold text-blue-400">{block.text}</h2>
+                      <div className={`mt-6 first:mt-0 pb-2 border-b flex items-center gap-3 ${
+                        theme === 'DARK' ? 'border-[#2a3045]' : 'border-gray-100'
+                      }`}>
+                         <h2 className="text-sm font-bold tracking-tight text-blue-400">{block.text}</h2>
                       </div>
                     )}
                     {block.type === 'point' && (
-                      <div className="flex items-start gap-3 pl-2 py-1 bg-white/[0.02] border border-white/[0.05] rounded-lg">
-                        <span className="text-[#00e5a0] mt-1.5 font-bold">{options.numbered ? `${block.num}.` : '•'}</span>
-                        <p className="text-sm leading-relaxed" 
-                           dangerouslySetInnerHTML={{ __html: (block.text || '').replace(/\*\*(.*?)\*\*/g, '<b class="text-[#00e5a0]"> $1 </b>') }} 
+                      <div className={`flex items-start gap-4 p-3 rounded-xl border transition-all ${
+                        theme === 'DARK' ? 'bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.04]' : 'bg-gray-50 border-gray-100 hover:bg-gray-100'
+                      }`}>
+                        <span className="text-[#00e5a0] text-lg font-bold">📌</span>
+                        <p className={`text-sm leading-relaxed ${theme === 'DARK' ? 'text-gray-300' : 'text-gray-700'}`} 
+                           dangerouslySetInnerHTML={{ __html: (block.text || '').replace(/\*\*(.*?)\*\*/g, '<b class="text-[#00e5a0] font-bold underline decoration-[#00e5a0]/30 underline-offset-4"> $1 </b>') }} 
                         />
                       </div>
                     )}
                     {block.type === 'def' && (
-                      <div className="pl-4 border-l-2 border-orange-500/50 bg-orange-500/5 py-2 rounded-r-lg">
-                        <span className="font-mono text-[10px] uppercase font-bold text-orange-400 block mb-1">Definition</span>
-                        <span className="font-bold text-orange-200">{block.k}:</span>
-                        <span className="text-sm ml-2 text-[#e8ecf4]">{block.v}</span>
+                      <div className={`pl-4 border-l-4 py-3 rounded-r-2xl ${
+                        theme === 'DARK' ? 'border-orange-500/50 bg-orange-500/5' : 'border-orange-200 bg-orange-50'
+                      }`}>
+                        <span className="font-bold text-orange-400 text-xs uppercase mb-1 block">Context Definition</span>
+                        <span className="font-bold">{block.k}:</span>
+                        <span className="text-sm ml-2">{block.v}</span>
                       </div>
                     )}
                     {block.type === 'link' && (
@@ -891,15 +947,14 @@ export default function App() {
                         href={block.url} 
                         target="_blank" 
                         rel="noreferrer"
-                        className="flex items-center gap-2 p-2 bg-indigo-500/5 border border-indigo-500/10 rounded-lg hover:bg-indigo-500/10 transition-colors group"
+                        className={`flex items-center gap-3 p-3 border rounded-xl transition-all group ${
+                          theme === 'DARK' ? 'bg-indigo-500/5 border-indigo-500/10 hover:bg-indigo-500/10' : 'bg-indigo-50 border-indigo-100 hover:bg-indigo-100'
+                        }`}
                       >
                         <BookOpen className="w-4 h-4 text-indigo-400" />
-                        <span className="text-xs font-medium text-indigo-300 group-hover:underline">{block.text}</span>
-                        <ExternalLink className="w-3 h-3 text-indigo-500/50 ml-auto" />
+                        <span className="text-xs font-bold text-indigo-400 group-hover:underline">{block.text}</span>
+                        <ExternalLink className="w-3 h-3 text-indigo-400/50 ml-auto" />
                       </a>
-                    )}
-                    {block.type === 'plain' && (
-                      <p className="text-sm text-[#7a8499] italic pl-2">{block.text}</p>
                     )}
                   </motion.div>
                 ))}
