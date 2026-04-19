@@ -57,14 +57,25 @@ export default function App() {
 
   const outputRef = useRef<HTMLDivElement>(null);
 
+  const [blogLinksStatus, setBlogLinksStatus] = useState<'LOADING' | 'READY' | 'ERROR'>('LOADING');
+
   // Fetch links from Blogspot via our server API
   useEffect(() => {
+    setBlogLinksStatus('LOADING');
     fetch('/api/links')
       .then(res => res.json())
       .then(data => {
-        if (Array.isArray(data)) setLinks(data);
+        if (Array.isArray(data)) {
+          setLinks(data);
+          setBlogLinksStatus('READY');
+        } else {
+          setBlogLinksStatus('ERROR');
+        }
       })
-      .catch(err => console.error('Failed to fetch links:', err));
+      .catch(err => {
+        console.error('Failed to fetch links:', err);
+        setBlogLinksStatus('ERROR');
+      });
   }, []);
 
   const organizeNotes = () => {
@@ -78,8 +89,15 @@ export default function App() {
     const newBlocks: Block[] = [];
     let pNum = 0;
 
-    const H_PAT = [/^([A-Z][A-Za-z\s\-\/]{2,50})\s*:?\s*$/, /^(\d+[\.\)]\s*.{3,60})$/, /^[A-Z\s]{4,50}$/, /^#{1,3}\s+(.+)$/];
-    const D_PAT = /^([A-Za-z][^:]{1,40})\s*:\s*(.{3,})$/;
+    // Enhanced patterns
+    const H_PAT = [
+      /^([A-Z][A-Za-z\s\-\/]{2,50})\s*:?\s*$/, 
+      /^(\d+[\.\)]\s*.{3,60})$/, 
+      /^[A-Z\s]{4,50}$/, 
+      /^#{1,3}\s+(.+)$/,
+      /^[0-9]+\.\s+[A-Z].+/
+    ];
+    const D_PAT = /^([A-Za-z0-9][^:]{1,40})\s*:\s*(.{2,})$/;
     const B_RE = [/^[-\u2022*\u25BA\u25B8\u2192\u2713\u2717]\s+/, /^\d+[\.\)]\s+/];
 
     const isH = (l: string) => options.headings && (H_PAT.some(p => p.test(l.trim())) || l.startsWith('#'));
@@ -93,12 +111,16 @@ export default function App() {
 
       if (isH(t)) {
         newBlocks.push({ type: 'heading', text: cln(t) });
+        pNum = 0; // Reset bullet numbering per section if needed, or keep global
       } else if (isD(t)) {
         const m = t.match(D_PAT);
         if (m) newBlocks.push({ type: 'def', k: m[1].trim(), v: m[2].trim() });
       } else if (hasB(t) && options.points) {
         pNum++;
         newBlocks.push({ type: 'point', text: cln(t), num: pNum });
+      } else if (options.points && (t.startsWith('-') || t.startsWith('*') || t.startsWith('•'))) {
+         pNum++;
+         newBlocks.push({ type: 'point', text: cln(t), num: pNum });
       } else if (options.points && t.length > 5 && t.split(' ').length <= 15) {
         pNum++;
         newBlocks.push({ type: 'point', text: t, num: pNum });
@@ -107,22 +129,35 @@ export default function App() {
       }
     });
 
-    // Add Blogspot links if enabled
+    // Add Blogspot links with proper branding
     if (options.includeBlogLinks && links.length > 0) {
-      newBlocks.push({ type: 'heading', text: 'Important Links from AnkitStudyPoint' });
-      links.forEach(link => {
+      newBlocks.push({ type: 'heading', text: 'Related Posts from AnkitStudyPoint' });
+      // Take only top 10 relevant links or random mix
+      const shuffled = [...links].slice(0, 15);
+      shuffled.forEach(link => {
         newBlocks.push({ type: 'link', text: link.title, url: link.url });
       });
     }
 
     setBlocks(newBlocks);
-    setStatus('DONE ✓');
+    setTimeout(() => {
+      setStatus('DONE ✓');
+      const out = document.getElementById('outputArea');
+      if (out) out.scrollTop = 0;
+    }, 400);
   };
 
   const clearAll = () => {
     setInputText('');
     setBlocks([]);
     setStatus('READY');
+  };
+
+  const [toast, setToast] = useState<{ msg: string, type: 'SUCCESS' | 'ERROR' } | null>(null);
+
+  const showToast = (msg: string, type: 'SUCCESS' | 'ERROR' = 'SUCCESS') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
   };
 
   const copyToClipboard = async (type: 'text' | 'html') => {
@@ -152,9 +187,9 @@ export default function App() {
 
     try {
       await navigator.clipboard.writeText(content.trim());
-      alert('Copied to clipboard!');
+      showToast('Copied to clipboard!');
     } catch (err) {
-      console.error('Failed to copy:', err);
+      showToast('Failed to copy', 'ERROR');
     }
   };
 
@@ -497,11 +532,35 @@ export default function App() {
           </section>
 
           <section className="bg-[#1c2030] border border-[#2a3045] rounded-2xl p-5 shadow-xl">
-            <div className="flex items-center gap-2 mb-4">
-              <Settings className="w-4 h-4 text-[#7a8499]" />
-              <h3 className="font-mono text-xs font-bold uppercase tracking-widest">Configuration</h3>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Settings className="w-4 h-4 text-[#7a8499]" />
+                <h3 className="font-mono text-xs font-bold uppercase tracking-widest">Configuration</h3>
+              </div>
+              <div className="flex items-center gap-1.5 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                <div className={`w-1.5 h-1.5 rounded-full ${blogLinksStatus === 'READY' ? 'bg-green-400' : 'bg-yellow-400'}`}></div>
+                <span className="text-[9px] font-mono font-bold text-blue-400">BLOG SYNC: {blogLinksStatus}</span>
+              </div>
             </div>
             
+            <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 mb-5">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-xs font-bold text-orange-200 uppercase tracking-wide mb-1">GitHub Blank Page Fix?</h4>
+                  <p className="text-[10px] text-orange-200/70 leading-relaxed mb-3">
+                    If your GitHub link is white/blank, it's because GitHub can't read your source files directly. You need the <strong>Single-File Portable Version</strong>.
+                  </p>
+                  <button 
+                    onClick={downloadPortableVersion}
+                    className="w-full bg-orange-500 text-[#0d0f12] py-1.5 rounded-lg text-[10px] font-mono font-bold hover:bg-orange-400 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Download Fixing index.html
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <label className="flex items-center gap-3 cursor-pointer group">
                 <input 
@@ -736,6 +795,25 @@ export default function App() {
           No AI used &middot; Rule-based Organization &middot; pdf-lib powered
         </p>
       </footer>
+
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div 
+            initial={{ y: 50, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 50, opacity: 0 }}
+            className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 rounded-xl font-mono text-xs font-bold shadow-2xl flex items-center gap-3 border ${
+              toast.type === 'SUCCESS' 
+                ? 'bg-[#00e5a0] text-[#0d0f12] border-[#00e5a0]' 
+                : 'bg-red-500 text-white border-red-500'
+            }`}
+          >
+            {toast.type === 'SUCCESS' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+            {toast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar {
