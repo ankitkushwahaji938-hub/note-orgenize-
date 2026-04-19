@@ -102,163 +102,136 @@ export default function App() {
 
     setStatus('ORGANIZING...');
     
-    // Helper to clean and shorten sentences
+    // STEP 4, 8: Helper functions for shortening and capitalization
+    const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+    
+    const shorten = (s: string) => {
+      // Step 4: Shorten sentences (Smart cut by comma)
+      return s.split(',')[0].trim();
+    };
+
+    const limitWords = (s: string) => {
+      // Rule 8: Max word limit
+      const words = s.split(' ');
+      if (words.length <= 12) return s;
+      return words.slice(0, 12).join(' ') + '...';
+    };
+
     const refineText = (txt: string) => {
+      // Basic grammar fixes from previous turn + cleaning
       const grammarMap: Record<string, string> = {
         'dont': "don't", 'doesnt': "doesn't", 'cant': "can't",
         'wont': "won't", 'isnt': "isn't", 'arent': "aren't",
         'i': "I"
       };
-      return txt
-        .replace(/\b(dont|doesnt|cant|wont|isnt|arent|i)\b/gi, (m) => grammarMap[m.toLowerCase()] || m)
-        .replace(/^(actually|basically|essentially|furthermore|moreover|in addition to this|so like|i mean),?\s+/gi, '')
-        .replace(/\s+/g, ' ')
-        .trim();
+      let clean = txt.replace(/\b(dont|doesnt|cant|wont|isnt|arent|i)\b/gi, (m) => grammarMap[m.toLowerCase()] || m);
+      return cap(clean.replace(/\s+/g, ' ').trim());
+    };
+
+    // STEP 5: Category Detection (The powerful keyword-based part)
+    const getCategory = (s: string) => {
+      const lower = s.toLowerCase();
+      if (lower.includes("name") || lower.includes("called") || lower.includes("is a") || lower.includes("refer")) 
+        return "📌 INTRODUCTION";
+      if (lower.includes("had") || lower.includes("was") || lower.includes("known") || lower.includes("feature")) 
+        return "📌 TRAITS & CHARACTERISTICS";
+      if (lower.includes("lived") || lower.includes("life") || lower.includes("born") || lower.includes("stay")) 
+        return "📌 LIFESTYLE & BACKGROUND";
+      if (lower.includes("went") || lower.includes("noticed") || lower.includes("said") || lower.includes("happened")) 
+        return "📌 INCIDENTS & EVENTS";
+      if (lower.includes("use") || lower.includes("work") || lower.includes("how") || lower.includes("method"))
+        return "📌 USAGE & MECHANISM";
+      return "📌 KEY TAKEAWAYS";
     };
 
     const newBlocks: Block[] = [];
     let pNum = 0;
-    let currentSection: Block[] = [];
-    let currentHeading = "";
-    
-    // 1. DUPLICATE REMOVAL: Use Set for unique lines
-    const rawLines = inputText.split('\n').map(l => l.trim()).filter(l => l !== "");
-    const uniqueLines: string[] = Array.from(new Set(rawLines)); 
+
+    // STEP 1: Text Clean (Extra spaces and line breaks)
+    const sanitizedText = inputText.replace(/\n+/g, " ").replace(/\s+/g, " ").trim();
 
     if (organizeMode === 'SIMPLE') {
-      // Simple Mode: Just split sentences and show as points
-      const allText = uniqueLines.join(' ');
-      const sentences = allText.split(/(?<=[.!?])\s+(?=[A-Z0-9])/).filter(s => s.trim().length > 5);
-      
+      const sentences = sanitizedText.split(/(?<=[.!?])\s+(?=[A-Z0-9])/).filter(s => s.trim().length > 5);
       sentences.forEach((s: string) => {
         pNum++;
         newBlocks.push({ type: 'point', text: refineText(s), num: pNum });
       });
     } else {
-      // SMART MODE: Refactored Section Grouping
-      const usedInExplicit = new Set<string>();
+      // STEP 2 & 3: Sentence Split & Filter
+      let sentences = sanitizedText.split(/(?<=[.?!])\s+/);
+      
+      // Rule 3: Filter (remove short sentences, dialogues, useless words)
+      sentences = sentences.filter(s => {
+        const trimmed = s.trim();
+        if (trimmed.length < 30) return false;
+        if (trimmed.includes('"')) return false; // Remove quotes/dialogue
+        return true;
+      });
 
-      // A. Explicit Structure detection (Sequence based)
-      uniqueLines.forEach((line: string) => {
-        const isHeading = line.length > 3 && line.length < 65 && /^[A-Z0-9]/.test(line) && !line.includes(':') && line.split(' ').length < 8;
+      // STEP 6: Grouping
+      const groups: Record<string, string[]> = {};
+      
+      sentences.forEach(s => {
+        const cat = getCategory(s);
+        if (!groups[cat]) groups[cat] = [];
         
-        if (isHeading) {
-          // Flush previous section
-          if (currentSection.length > 0) {
-            newBlocks.push({ type: 'heading', text: currentHeading || '📌 CORE HIGHLIGHTS' });
-            newBlocks.push(...currentSection);
-            currentSection = [];
-          }
-          currentHeading = `📌 ${line.toUpperCase()}`;
-          usedInExplicit.add(line);
-        } else {
-          // Handle Colon / Subpoints
-          if (line.includes(':')) {
-            const parts = line.split(':');
-            const term = parts[0].trim();
-            const desc = parts.slice(1).join(':').trim();
-            if (term.length < 50 && desc.length > 0) {
-               currentSection.push({ type: 'def', k: term, v: refineText(desc) });
-               usedInExplicit.add(line);
-            }
-          }
-          
-          // Paragraph internal splitting
-          if (!usedInExplicit.has(line)) {
-            const sentences = line.split(/(?<=[.!?])\s+(?=[A-Z0-9])/).filter(s => s.trim().length > 10);
-            sentences.forEach((s: string) => {
-              currentSection.push({ type: 'point', text: refineText(s), num: ++pNum });
-            });
-            usedInExplicit.add(line);
-          }
+        // STEP 4 & 8: Shorten, Limit, Cap
+        let point = shorten(s);
+        point = limitWords(point);
+        point = refineText(point);
+        
+        // EXTRA SMART: Duplicate removal per category
+        if (!groups[cat].includes(point)) {
+          groups[cat].push(point);
         }
       });
-      // B. FALLBACK: If NO structure detected (it was a huge single paragraph), use Keyword extraction
-      if (newBlocks.length === 0 || (newBlocks.length === 2 && newBlocks[0].text === '📌 NOTES SUMMARY')) {
-         // Clear and try theme grouping
-         const allSentences = inputText.split(/(?<=[.!?])\s+(?=[A-Z0-9])/).filter(s => s.trim().length > 10);
-         const uniqueSentences: string[] = Array.from(new Set(allSentences));
-         const stopWords = new Set(['the', 'this', 'that', 'with', 'also', 'from', 'about', 'will', 'been', 'were', 'which', 'they', 'their']);
-         
-         const keywordMap: Record<string, number> = {};
-         const kwToS: Record<string, string[]> = {};
 
-         uniqueSentences.forEach((s: string) => {
-           const words = s.toLowerCase().match(/\b\w{5,}\b/g) || [];
-           words.forEach(w => {
-             if(!stopWords.has(w)) {
-               keywordMap[w] = (keywordMap[w] || 0) + 1;
-               if(!kwToS[w]) kwToS[w] = [];
-               kwToS[w].push(s);
-             }
-           });
-         });
+      // STEP 7: Output Format (Convert grouping to Block format)
+      // We sort categories to keep Introduction first if it exists
+      const sortedCats = Object.keys(groups).sort((a, b) => {
+        if (a.includes("INTRODUCTION")) return -1;
+        if (b.includes("INTRODUCTION")) return 1;
+        return a.localeCompare(b);
+      });
 
-         const themes = Object.entries(keywordMap)
-           .filter(([_, count]) => count > 1)
-           .sort((a,b) => b[1] - a[1])
-           .slice(0, 4);
-
-         if (themes.length > 0) {
-           newBlocks.length = 0; // reset
-           const usedS = new Set<string>();
-           themes.forEach(([kw, _]) => {
-             const related = (kwToS[kw] || []).filter(s => !usedS.has(s)).slice(0, 3);
-             if (related.length > 0) {
-               newBlocks.push({ type: 'heading', text: `📌 ${kw.toUpperCase()}` });
-               related.forEach(s => {
-                 usedS.add(s);
-                 let p = refineText(s);
-                 p = p.replace(/\b(example|e\.g\.)\s*:?\s*([^.!?]+)/gi, '(Example: $2)');
-                 newBlocks.push({ type: 'point', text: p, num: ++pNum });
-               });
-             }
-           });
-           
-           const strays = uniqueSentences.filter(s => !usedS.has(s)).slice(0, 5);
-           if (strays.length > 0) {
-              newBlocks.push({ type: 'heading', text: '📌 KEY TAKEAWAYS' });
-              strays.forEach(s => newBlocks.push({ type: 'point', text: refineText(s), num: ++pNum }));
-           }
-         }
-      }
+      sortedCats.forEach(cat => {
+        const points = groups[cat];
+        // Rule 4: Remove empty sections (handled by loop over existing keys)
+        if (points.length > 0) {
+          newBlocks.push({ type: 'heading', text: cat });
+          points.forEach(p => {
+             newBlocks.push({ type: 'point', text: p, num: ++pNum });
+          });
+        }
+      });
     }
 
-    // Final Flush
-    if (newBlocks.length === 0 && currentSection.length > 0) {
-      newBlocks.push({ type: 'heading', text: currentHeading || '📌 NOTES SUMMARY' });
-      newBlocks.push(...currentSection);
-    }
-
-
-    // EMPTY SECTION REMOVAL: Remove any heading that has no content until the next heading or end
-    const filteredBlocks: Block[] = [];
+    // Filter out headings without content (double safety)
+    const finalBlocks: Block[] = [];
     newBlocks.forEach((b, idx) => {
       if (b.type === 'heading') {
-        const nextContentIdx = newBlocks.findIndex((val, i) => i > idx && val.type !== 'heading');
-        const nextHeadingIdx = newBlocks.findIndex((val, i) => i > idx && val.type === 'heading');
-        
-        // If content exists before the next heading (or until end)
-        if (nextContentIdx !== -1 && (nextHeadingIdx === -1 || nextContentIdx < nextHeadingIdx)) {
-          filteredBlocks.push(b);
-        }
+        const hasContent = newBlocks.slice(idx + 1).find(next => {
+          if (next.type === 'heading') return null; // End of current section
+          return true; // Found content
+        });
+        if (hasContent) finalBlocks.push(b);
       } else {
-        filteredBlocks.push(b);
+        finalBlocks.push(b);
       }
     });
 
     // Related Blog Links
     if (options.includeBlogLinks && links.length > 0) {
-      filteredBlocks.push({ type: 'heading', text: '🔗 RECENT FROM ANKITSTUDYPOINT' });
+      finalBlocks.push({ type: 'heading', text: '🔗 RECENT FROM ANKITSTUDYPOINT' });
       const shuffled = [...links].sort(() => 0.5 - Math.random()).slice(0, 4);
       shuffled.forEach(link => {
-        filteredBlocks.push({ type: 'link', text: link.title, url: link.url });
+        finalBlocks.push({ type: 'link', text: link.title, url: link.url });
       });
     }
 
-    setBlocks(filteredBlocks);
+    setBlocks(finalBlocks);
     setStatus('DONE ✓');
-    showToast('Success: Clean Study Notes Generated!');
+    showToast('Success: Algorithm-Driven Smart Notes Generated!');
   };
 
   const clearAll = () => {
