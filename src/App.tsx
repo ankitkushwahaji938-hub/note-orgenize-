@@ -183,6 +183,131 @@ export default function App() {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const buildFullSEOHTML = () => {
+    const title = seo.title || 'Professional Study Notes | AnkitStudyPoint';
+    const desc = seo.desc || 'Optimized study notes and educational content organized for better learning.';
+    const keywords = seo.keywords || blocks.filter(b => b.type === 'heading').map(b => b.text).join(', ');
+    const author = userName || 'AnkitStudyPoint Editorial';
+    const date = new Date().toISOString();
+    const displayDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const baseUrl = 'https://ankitstudypoint.blogspot.com';
+
+    let hasH1 = false;
+    const bodyContent = blocks.map((b) => {
+      if (b.type === 'heading') {
+        if (!hasH1) {
+          hasH1 = true;
+          return `<h1 style="color: #1a365d; border-bottom: 3px solid #3182ce; padding-bottom: 12px; margin-top: 40px; font-size: 2.5rem; letter-spacing: -0.02em;">${b.text}</h1>`;
+        }
+        return `<h2 style="color: #2c5282; border-bottom: 2px solid #4299e1; padding-bottom: 8px; margin-top: 35px; font-size: 1.8rem;">${b.text}</h2>`;
+      }
+      if (b.type === 'point') return `<li style="margin-bottom: 12px; list-style-type: disc; margin-left: 25px; color: #2d3748; font-size: 1.05rem;">${(b.text || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}</li>`;
+      if (b.type === 'def') return `
+        <div style="margin: 25px 0; padding: 20px; background: #fffaf0; border-left: 6px solid #ed8936; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+          <h3 style="margin-top: 0; color: #c05621; font-size: 1.3rem; margin-bottom: 10px;">${b.k}</h3>
+          <p style="margin-bottom: 0; color: #4a5568; line-height: 1.6;">${b.v}</p>
+        </div>`;
+      if (b.type === 'link') return `<p style="margin: 20px 0;"><a href="${b.url}" style="color: #3182ce; text-decoration: none; font-weight: 700; border-bottom: 2px solid #ebf8ff; transition: all 0.2s;" target="_blank">🔗 ${b.text}</a></p>`;
+      return `<p style="margin: 15px 0; color: #4a5568; line-height: 1.8; font-size: 1.05rem;">${b.text}</p>`;
+    }).join('\n');
+
+    // Wrap list items
+    const processedBody = bodyContent.replace(/(<li.*?>.*?<\/li>\n)+/g, m => `<ul style="margin-bottom: 30px; padding-left: 0;">\n${m}</ul>\n`);
+
+    // Schema JSON-LD
+    const schemaData = {
+      "@context": "https://schema.org",
+      "@type": "BlogPosting",
+      "headline": title,
+      "description": desc,
+      "author": {
+        "@type": "Person",
+        "name": author
+      },
+      "datePublished": date,
+      "image": "REPLACE_WITH_IMAGE_URL",
+      "publisher": {
+        "@type": "Organization",
+        "name": "AnkitStudyPoint",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://ankitstudypoint.blogspot.com/favicon.ico"
+        }
+      },
+      "mainEntityOfPage": {
+        "@type": "WebPage",
+        "@id": baseUrl
+      },
+      "keywords": keywords
+    };
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} | AnkitStudyPoint</title>
+  <meta name="description" content="${desc}">
+  <meta name="keywords" content="${keywords}">
+  <meta name="author" content="${author}">
+  <meta name="robots" content="index, follow">
+  
+  <!-- Open Graph / Social Media -->
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="${title}">
+  <meta property="og:description" content="${desc}">
+  <meta property="og:image" content="REPLACE_WITH_IMAGE_URL">
+  <meta property="og:url" content="${baseUrl}">
+  
+  <script type="application/ld+json">
+    ${JSON.stringify(schemaData, null, 2)}
+  </script>
+
+  <style>
+    body { font-family: 'Inter', -apple-system, system-ui, sans-serif; line-height: 1.7; color: #2d3748; background-color: #f7fafc; padding: 20px; margin: 0; }
+    .page-container { max-width: 900px; margin: 50px auto; background: #ffffff; padding: 60px; border-radius: 20px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); border: 1px solid #edf2f7; }
+    h1, h2, h3 { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 800; color: #1a202c; }
+    .post-metadata { color: #718096; font-size: 0.9rem; margin-bottom: 40px; border-bottom: 1px solid #edf2f7; padding-bottom: 20px; display: flex; gap: 20px; }
+    .featured-image-placeholder { width: 100%; height: 400px; background: #edf2f7; border-radius: 12px; margin-bottom: 40px; display: flex; items-center; justify-center; color: #a0aec0; border: 2px dashed #cbd5e0; position: relative; overflow: hidden; }
+    /* Tip: Edit the schema above and this placeholder to add your image */
+    @media (max-width: 768px) { .page-container { padding: 30px; margin: 10px; } .featured-image-placeholder { height: 250px; } }
+  </style>
+</head>
+<body>
+  <div class="page-container">
+    <div class="featured-image-placeholder">
+       <p>Featured Image Area (Edit HTML to insert img tag)</p>
+       <!-- <img src="YOUR_IMAGE_URL_HERE" style="width:100%; height:100%; object-fit:cover;" /> -->
+    </div>
+    
+    <div class="post-metadata">
+      <span>By <strong>${author}</strong></span>
+      <span>Published: ${displayDate}</span>
+    </div>
+
+    ${!hasH1 ? `<h1 style="color: #1a365d; border-bottom: 3px solid #3182ce; padding-bottom: 12px; margin-top: 0; font-size: 2.5rem; letter-spacing: -0.02em;">${title}</h1>` : ''}
+    
+    <div class="excerpt" style="font-size: 1.2rem; color: #4a5568; margin-bottom: 40px; line-height: 1.6; border-left: 4px solid #3182ce; padding-left: 20px;">
+      ${desc}
+    </div>
+
+    <article>
+      ${processedBody}
+    </article>
+
+    <footer style="margin-top: 80px; padding-top: 40px; border-top: 2px solid #edf2f7; text-align: center;">
+      <p style="color: #718096; font-size: 0.9rem;">
+        &copy; ${new Date().getFullYear()} <strong>AnkitStudyPoint</strong>. All rights reserved.
+      </p>
+      <p style="color: #a0aec0; font-size: 0.8rem; margin-top: 10px;">
+        Optimized Learning & Professional Note Organization Tools.
+      </p>
+    </footer>
+  </div>
+</body>
+</html>`;
+  };
+
   const copyToClipboard = async (type: 'text' | 'html') => {
     let content = '';
     if (type === 'text') {
@@ -194,18 +319,7 @@ export default function App() {
         else content += `${b.text}\n`;
       });
     } else {
-      content = `
-<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: auto; padding: 20px;">
-  ${blocks.map(b => {
-    if (b.type === 'heading') return `<h2 style="color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 5px; margin-top: 30px;">${b.text}</h2>`;
-    if (b.type === 'point') return `<li style="margin-bottom: 8px;">${b.text}</li>`;
-    if (b.type === 'def') return `<p><strong>${b.k}:</strong> ${b.v}</p>`;
-    if (b.type === 'link') return `<p><a href="${b.url}" style="color: #4f46e5; text-decoration: none;" target="_blank">🔗 ${b.text}</a></p>`;
-    return `<p>${b.text}</p>`;
-  }).join('\n')}
-</div>`;
-      // Handle list wrapping
-      content = content.replace(/(<li.*?>.*?<\/li>\n)+/g, m => `<ul>\n${m}</ul>\n`);
+      content = buildFullSEOHTML();
     }
 
     try {
@@ -214,6 +328,21 @@ export default function App() {
     } catch (err) {
       showToast('Failed to copy', 'ERROR');
     }
+  };
+
+  const downloadHTML = () => {
+    if (blocks.length === 0) {
+      showToast('Organize notes first!', 'ERROR');
+      return;
+    }
+    const html = buildFullSEOHTML();
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${seo.title || 'organized-notes'}-ankitstudypoint.html`;
+    a.click();
+    showToast('HTML Downloaded!');
   };
 
   const generatePDF = async (isPreview = false) => {
@@ -230,10 +359,25 @@ export default function App() {
       let y = PH - margin;
       let page = doc.addPage([PW, PH]);
 
-      const drawHeader = (p: any, title: string) => {
-        p.drawRectangle({ x: 0, y: PH - 40, width: PW, height: 40, color: rgb(0.05, 0.06, 0.08) });
-        p.drawText('AnkitStudyPoint Notes', { x: margin, y: PH - 25, size: 12, font: fBold, color: rgb(0, 0.9, 0.6) });
-        p.drawText(title.substring(0, 40), { x: PW - margin - 150, y: PH - 25, size: 8, font: fReg, color: rgb(0.6, 0.6, 0.6) });
+      const cleanForPdf = (txt: string) => {
+        // Standard fonts only support WinAnsi (no emojis or complex unicode)
+        return (txt || '')
+          .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') // Remove emojis
+          .replace(/[^\x00-\x7F]/g, ''); // Remove non-ascii characters for safety
+      };
+
+      const drawHeader = (p: any, titleStr: string) => {
+        const safeTitle = cleanForPdf(titleStr);
+        if (options.seo) {
+          // Stylish Professional Header for SEO mode
+          p.drawRectangle({ x: 0, y: PH - 40, width: PW, height: 40, color: rgb(0.05, 0.06, 0.08) });
+          p.drawText('AnkitStudyPoint Notes', { x: margin, y: PH - 25, size: 12, font: fBold, color: rgb(0, 0.9, 0.6) });
+          p.drawText(safeTitle.substring(0, 40), { x: PW - margin - 150, y: PH - 25, size: 8, font: fReg, color: rgb(0.6, 0.6, 0.6) });
+        } else {
+          // Simple Simple Header for normal mode
+          p.drawText('Organized Study Notes', { x: margin, y: PH - 30, size: 10, font: fReg, color: rgb(0.5, 0.5, 0.5) });
+          p.drawLine({ start: { x: margin, y: PH - 35 }, end: { x: PW - margin, y: PH - 35 }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) });
+        }
       };
 
       const checkPage = (height: number) => {
@@ -245,48 +389,64 @@ export default function App() {
       };
 
       drawHeader(page, seo.title || 'Study Notes');
-      y -= 40;
+      y -= options.seo ? 40 : 45;
 
-      // Title
-      const docTitle = seo.title || 'Organized Notes';
-      page.drawText(docTitle, { x: margin, y, size: 20, font: fBold, color: rgb(0.1, 0.2, 0.5) });
+      // Title Section
+      const docTitle = cleanForPdf(seo.title || 'Structured Study Notes');
+      page.drawText(docTitle, { 
+        x: margin, 
+        y, 
+        size: options.seo ? 22 : 18, 
+        font: fBold, 
+        color: options.seo ? rgb(0.1, 0.2, 0.5) : rgb(0.1, 0.1, 0.1) 
+      });
       y -= 30;
 
       for (const b of blocks) {
         if (b.type === 'heading') {
+          const bText = cleanForPdf(b.text || '');
           checkPage(40);
           y -= 10;
-          page.drawRectangle({ x: margin, y: y - 5, width: PW - 2 * margin, height: 20, color: rgb(0.9, 0.95, 1) });
-          page.drawText(b.text || '', { x: margin + 5, y, size: 14, font: fBold, color: rgb(0.1, 0.4, 0.8) });
+          if (options.seo) {
+             page.drawRectangle({ x: margin, y: y - 5, width: PW - 2 * margin, height: 20, color: rgb(0.9, 0.95, 1) });
+             page.drawText(bText, { x: margin + 5, y, size: 14, font: fBold, color: rgb(0.1, 0.4, 0.8) });
+          } else {
+             page.drawText(bText.toUpperCase(), { x: margin, y, size: 12, font: fBold, color: rgb(0.2, 0.2, 0.2) });
+             page.drawLine({ start: { x: margin, y: y - 4 }, end: { x: margin + 100, y: y - 4 }, thickness: 2, color: rgb(0.2, 0.2, 0.2) });
+          }
           y -= 30;
         } else if (b.type === 'point') {
-          const lines = wrapText(b.text || '', fReg, 11, PW - 2 * margin - 20);
+          const rawText = b.text || '';
+          const cleanText = cleanForPdf(rawText.replace(/\*\*/g, '')); // Clean bold AND emoji
+          const lines = wrapText(cleanText, fReg, 11, PW - 2 * margin - 20);
           checkPage(lines.length * 15 + 10);
-          page.drawText('•', { x: margin + 5, y, size: 14, font: fBold, color: rgb(0, 0.7, 0.5) });
+          page.drawText('>', { x: margin + 5, y: y + 2, size: 10, font: fBold, color: options.seo ? rgb(0, 0.7, 0.5) : rgb(0.3, 0.3, 0.3) });
           lines.forEach(line => {
             page.drawText(line, { x: margin + 20, y, size: 11, font: fReg });
             y -= 15;
           });
           y -= 5;
         } else if (b.type === 'def') {
-          const key = `${b.k}: `;
-          const val = b.v || '';
+          const key = cleanForPdf(`${b.k}: `);
+          const val = cleanForPdf(b.v || '');
           const keyWidth = fBold.widthOfTextAtSize(key, 11);
           const valLines = wrapText(val, fReg, 11, PW - 2 * margin - keyWidth - 10);
           checkPage(valLines.length * 15 + 10);
-          page.drawText(key, { x: margin, y, size: 11, font: fBold, color: rgb(0.8, 0.4, 0) });
+          page.drawText(key, { x: margin, y, size: 11, font: fBold, color: options.seo ? rgb(0.8, 0.4, 0) : rgb(0.1, 0.1, 0.1) });
           valLines.forEach(line => {
-            page.drawText(line, { x: margin + keyWidth, y, size: 11, font: fReg });
+            page.drawText(line, { x: margin + keyWidth, y, size: 11, font: fReg, color: rgb(0.2, 0.2, 0.2) });
             y -= 15;
           });
           y -= 5;
         } else if (b.type === 'link') {
+          const bText = cleanForPdf(b.text || '');
           checkPage(20);
-          page.drawText('🔗', { x: margin, y, size: 10, font: fReg });
-          page.drawText(b.text || '', { x: margin + 15, y, size: 11, font: fReg, color: rgb(0.2, 0.2, 0.9) });
+          page.drawText('>', { x: margin, y, size: 10, font: fBold, color: rgb(0.2, 0.2, 0.9) });
+          page.drawText(bText, { x: margin + 15, y, size: 11, font: fReg, color: rgb(0.2, 0.2, 0.9) });
           y -= 20;
         } else {
-          const lines = wrapText(b.text || '', fReg, 11, PW - 2 * margin);
+          const cleanText = cleanForPdf(b.text || '');
+          const lines = wrapText(cleanText, fReg, 11, PW - 2 * margin);
           checkPage(lines.length * 15 + 10);
           lines.forEach(line => {
             page.drawText(line, { x: margin, y, size: 11, font: fReg, color: rgb(0.3, 0.3, 0.3) });
@@ -296,11 +456,14 @@ export default function App() {
         }
       }
 
-      // Footer with page numbers
+      // Footer
       const pageCount = doc.getPageCount();
       for (let i = 0; i < pageCount; i++) {
         const p = doc.getPage(i);
-        p.drawText(`Page ${i + 1} of ${pageCount} | Generated by ${userName || 'AnkitStudyPoint'}`, {
+        const footerText = options.seo 
+          ? `Page ${i + 1} of ${pageCount} | Generated for AnkitStudyPoint | ${userName || 'User'}`
+          : `Note Page ${i + 1} | ${new Date().toLocaleDateString()}`;
+        p.drawText(footerText, {
           x: margin, y: 20, size: 8, font: fReg, color: rgb(0.5, 0.5, 0.5)
         });
       }
@@ -315,7 +478,7 @@ export default function App() {
       } else {
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${seo.title || 'organized-notes'}-ankitstudypoint.pdf`;
+        a.download = `${seo.title || 'organized-notes'}.pdf`;
         a.click();
       }
     } catch (err) {
@@ -642,15 +805,21 @@ export default function App() {
                 >
                   <input 
                     className="w-full bg-[#0d0f12] border border-[#2a3045] rounded-lg py-2 px-3 text-xs focus:outline-none focus:border-blue-500/50"
-                    placeholder="Document Title (for PDF & HTML)"
+                    placeholder="H1 & Meta Title (Primary Topic)"
                     value={seo.title}
                     onChange={(e) => setSeo({...seo, title: e.target.value})}
                   />
                   <input 
                     className="w-full bg-[#0d0f12] border border-[#2a3045] rounded-lg py-2 px-3 text-xs focus:outline-none focus:border-blue-500/50"
-                    placeholder="Meta Description (for SEO HTML)"
+                    placeholder="Meta Description (Brief Summary for Google)"
                     value={seo.desc}
                     onChange={(e) => setSeo({...seo, desc: e.target.value})}
+                  />
+                  <input 
+                    className="w-full bg-[#0d0f12] border border-[#2a3045] rounded-lg py-2 px-3 text-xs focus:outline-none focus:border-blue-500/50"
+                    placeholder="Search Keywords / LSI Terms (Comma separated)"
+                    value={seo.keywords}
+                    onChange={(e) => setSeo({...seo, keywords: e.target.value})}
                   />
                 </motion.div>
               )}
@@ -750,6 +919,12 @@ export default function App() {
               className="flex-1 min-w-[120px] bg-[#2a3045] border border-[#3a4055] py-2 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-2 hover:border-[#00e5a0]/50 transition-colors"
             >
               <FileText className="w-3.5 h-3.5" /> HTML Code
+            </button>
+            <button 
+              onClick={downloadHTML}
+              className="flex-1 min-w-[120px] bg-[#2a3045] border border-[#3a4055] py-2 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-2 hover:border-[#00e5a0]/50 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" /> Download HTML
             </button>
             <button 
               onClick={() => generatePDF(false)}
