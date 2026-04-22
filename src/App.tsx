@@ -38,7 +38,7 @@ export default function App() {
   const [links, setLinks] = useState<ScrapingLink[]>([]);
   const [userName, setUserName] = useState(() => localStorage.getItem('asp_user') || '');
   const [theme, setTheme] = useState<'DARK' | 'LIGHT'>(() => (localStorage.getItem('asp_theme') as any) || 'DARK');
-  const [organizeMode, setOrganizeMode] = useState<'SIMPLE' | 'SMART'>(() => (localStorage.getItem('asp_mode') as any) || 'SIMPLE');
+  const [organizeMode, setOrganizeMode] = useState<'SIMPLE' | 'SMART' | 'EXAM'>(() => (localStorage.getItem('asp_mode') as any) || 'SIMPLE');
   const [options, setOptions] = useState(() => {
     const saved = localStorage.getItem('asp_options');
     return saved ? JSON.parse(saved) : {
@@ -152,16 +152,50 @@ export default function App() {
     // STEP 4: Category Detection (Smarter grouping)
     const getCategory = (s: string) => {
       const lower = s.toLowerCase();
+      // Biology Heading Detection
+      if (lower.includes("section") || lower.includes("region"))
+        return "📌 REGION ANALYSIS";
+
       if (lower.includes("name") || lower.includes("called") || lower.includes("refer")) 
         return "📌 INTRODUCTION";
       if (lower.includes("had") || lower.includes("known") || lower.includes("was") || lower.includes("feature")) 
         return "📌 TRAITS";
       if (lower.includes("lived") || lower.includes("life") || lower.includes("background")) 
         return "📌 LIFESTYLE";
-      if (lower.includes("noticed") || lower.includes("said") || lower.includes("went") || lower.includes("confront") || lower.includes("happened")) 
+      if (lower.includes("went") || lower.includes("noticed") || lower.includes("said") || lower.includes("confront") || lower.includes("happened")) 
         return "📌 INCIDENT";
       
       return null; 
+    };
+
+    const highlightKeywords = (s: string) => {
+      const keywords = ['epidermis', 'parenchyma', 'trichomes', 'mesophyll', 'stalk', 'uniseriate', 'vascular', 'stoma', 'stomata'];
+      let highlighted = s;
+      keywords.forEach(kw => {
+        const regex = new RegExp(`\\b${kw}\\b`, 'gi');
+        highlighted = highlighted.replace(regex, (match) => `**${match.toUpperCase()}**`);
+      });
+      return highlighted;
+    };
+
+    const grammarCorrection = (s: string) => {
+      const dict: Record<string, string> = {
+        "staik": "stalk",
+        "uni-seriate": "uniseriate",
+        "are several layers": "consist of several layers"
+      };
+      let corrected = s;
+      Object.keys(dict).forEach(key => {
+        const regex = new RegExp(key, 'gi');
+        corrected = corrected.replace(regex, dict[key]);
+      });
+      return corrected;
+    };
+
+    const cleanIncomplete = (s: string) => {
+      const low = s.toLowerCase().trim();
+      if (low.endsWith("and") || low.endsWith("or") || low.endsWith("the")) return null;
+      return s;
     };
 
     const newBlocks: Block[] = [];
@@ -170,20 +204,47 @@ export default function App() {
     // Preliminary Clean
     const sanitizedText = inputText.replace(/\n+/g, " ").replace(/\s+/g, " ").trim();
 
-    if (organizeMode === 'SIMPLE') {
-      const sentences = sanitizedText.split(/(?<=[.!?])\s+(?=[A-Z0-9])/).filter(s => s.trim().length > 5);
-      sentences.forEach((s: string) => {
+    if (organizeMode === 'SIMPLE' || organizeMode === 'EXAM') {
+      let sentences = sanitizedText.split(/(?<=\.)\s+/).filter(s => s.trim().length > 10);
+      const usedInSimple = new Set<string>();
+      
+      sentences.forEach((rawS: string) => {
+        let s = rawS.trim();
+        s = grammarCorrection(s);
+        const cleaned = cleanIncomplete(s);
+        if (!cleaned || usedInSimple.has(cleaned)) return;
+        usedInSimple.add(cleaned);
+
+        // Exam mode: only short and important (heuristic)
+        if (organizeMode === 'EXAM') {
+          if (s.length > 150) return; // Skip very long ones in exam mode
+        }
+
         pNum++;
-        newBlocks.push({ type: 'point', text: smartCompress(s), num: pNum });
+        
+        // Smart shortening for display
+        let displayText = s;
+        if (displayText.length > 120) {
+          displayText = displayText.substring(0, 120) + "...";
+        }
+
+        // Heading Detection
+        const low = displayText.toLowerCase();
+        if (low.includes("section") || low.includes("region")) {
+          newBlocks.push({ type: 'heading', text: displayText.toUpperCase() });
+        } else {
+          newBlocks.push({ type: 'point', text: highlightKeywords(displayText), num: pNum });
+        }
       });
     } else {
       const sentences = sanitizedText.split(/(?<=[.?!])\s+/);
       const groups: Record<string, string[]> = {};
       
       sentences.forEach(rawS => {
-        const s = rawS.trim();
+        let s = rawS.trim();
         if (!s) return;
-
+        
+        s = grammarCorrection(s);
         const noDialogue = removeDialogue(s);
         if (!noDialogue) return;
 
@@ -200,9 +261,11 @@ export default function App() {
 
         if (!groups[cat]) groups[cat] = [];
 
-        if (!groups[cat].includes(compressed)) {
+        const highlighted = highlightKeywords(compressed);
+
+        if (!groups[cat].includes(highlighted)) {
           if (compressed.split(" ").length >= 6) {
-             groups[cat].push(compressed);
+             groups[cat].push(highlighted);
           }
         }
       });
@@ -777,10 +840,29 @@ export default function App() {
                       organizeMode === 'SMART' ? 'bg-[#00e5a0] text-[#0d0f12] border-[#00e5a0]' : 'text-gray-500 border-gray-300'
                     }`}
                  >SMART</button>
+                 <button 
+                    onClick={() => setOrganizeMode('EXAM')}
+                    className={`text-[9px] px-2 py-0.5 rounded font-bold border transition-all ${
+                      organizeMode === 'EXAM' ? 'bg-orange-500 text-white border-orange-500' : 'text-gray-500 border-gray-300'
+                    }`}
+                 >EXAM</button>
               </div>
             </div>
             
             <div className="p-5 flex-1 flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] uppercase tracking-wider text-[#7a8499] font-mono ml-1">Document Title (Automatic SEO & H1)</label>
+                <div className="relative">
+                  <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#7a8499]" />
+                  <input 
+                    className="w-full bg-[#0d0f12] border border-[#2a3045] rounded-lg py-2 pl-9 pr-4 text-sm focus:outline-none focus:border-[#00e5a0]/50"
+                    placeholder="e.g. Parts of Stalk and Trichomes"
+                    value={seo.title}
+                    onChange={(e) => setSeo({...seo, title: e.target.value})}
+                  />
+                </div>
+              </div>
+              
               <textarea 
                 className={`w-full h-80 border rounded-xl p-4 font-mono text-sm leading-relaxed resize-none focus:outline-none transition-all ${
                   theme === 'DARK' ? 'bg-[#0d0f12] border-[#2a3045] focus:border-[#00e5a0]/50' : 'bg-gray-50 border-gray-300 focus:border-blue-400'
@@ -810,7 +892,7 @@ export default function App() {
                       onClick={organizeNotes}
                       className="flex-1 bg-[#00e5a0] text-[#0d0f12] font-mono font-bold text-xs uppercase py-2.5 rounded-lg hover:bg-[#00ffb5] transition-all transform active:scale-95 flex items-center justify-center gap-2"
                     >
-                      Organize Notes
+                      <Check className="w-4 h-4" /> Auto Summary
                     </button>
                     <button 
                       onClick={clearAll}
