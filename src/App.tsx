@@ -193,7 +193,7 @@ export default function App() {
     };
 
     const cleanIncomplete = (s: string) => {
-      const low = s.toLowerCase().trim();
+      const low = s.toLowerCase().trim().replace(/[.!?]$/, '');
       if (low.endsWith("and") || low.endsWith("or") || low.endsWith("the")) return null;
       return s;
     };
@@ -222,15 +222,17 @@ export default function App() {
 
         pNum++;
         
-        // Smart shortening for display
+        // Smart shortening for display (prevent blunt cutoff)
         let displayText = s;
-        if (displayText.length > 120) {
-          displayText = displayText.substring(0, 120) + "...";
+        if (displayText.length > 250) {
+          // Find last space before 250 to avoid cutting words
+          const cutIndex = displayText.lastIndexOf(' ', 250);
+          displayText = displayText.substring(0, cutIndex > 0 ? cutIndex : 250) + "...";
         }
 
         // Heading Detection
         const low = displayText.toLowerCase();
-        if (low.includes("section") || low.includes("region")) {
+        if ( (low.includes("section") || low.includes("region")) && displayText.length < 100) {
           newBlocks.push({ type: 'heading', text: displayText.toUpperCase() });
         } else {
           newBlocks.push({ type: 'point', text: highlightKeywords(displayText), num: pNum });
@@ -249,14 +251,14 @@ export default function App() {
         if (!noDialogue) return;
 
         const score = scoreSentence(s);
-        if (score < 1) return;
+        // Relaxing score requirement for SMART mode
+        if (score < 0) return; 
 
         const compressed = smartCompress(s);
         let cat = getCategory(s);
         
         if (!cat) {
-          if (score >= 3) cat = "📌 KEY HIGHLIGHTS";
-          else return; 
+          cat = "📌 GENERAL NOTES";
         }
 
         if (!groups[cat]) groups[cat] = [];
@@ -264,7 +266,8 @@ export default function App() {
         const highlighted = highlightKeywords(compressed);
 
         if (!groups[cat].includes(highlighted)) {
-          if (compressed.split(" ").length >= 6) {
+          // Minimum length check
+          if (compressed.split(" ").length >= 4) {
              groups[cat].push(highlighted);
           }
         }
@@ -297,6 +300,17 @@ export default function App() {
     }
 
     setBlocks(finalBlocks);
+    
+    // Auto-populate SEO if blank
+    if (!seo.title && finalBlocks.length > 0) {
+      const firstHeading = finalBlocks.find(b => b.type === 'heading');
+      if (firstHeading) setSeo(prev => ({ ...prev, title: firstHeading.text?.replace(/^📌\s*/, '') || '' }));
+    }
+    if (!seo.desc && finalBlocks.length > 0) {
+      const firstPoints = finalBlocks.filter(b => b.type === 'point').slice(0, 2).map(b => b.text).join(' ');
+      if (firstPoints) setSeo(prev => ({ ...prev, desc: firstPoints.substring(0, 150) + '...' }));
+    }
+
     setStatus('DONE ✓');
     showToast('Success: AI-Like Notes Generated!');
   };
@@ -356,7 +370,7 @@ export default function App() {
         "name": author
       },
       "datePublished": date,
-      "image": "REPLACE_WITH_IMAGE_URL",
+      "image": "https://ankitstudypoint.blogspot.com/IMAGE_PATH_HERE.jpg",
       "publisher": {
         "@type": "Organization",
         "name": "AnkitStudyPoint",
@@ -369,7 +383,7 @@ export default function App() {
         "@type": "WebPage",
         "@id": baseUrl
       },
-      "keywords": keywords
+      "keywords": keywords || "biology notes, botanical study, trichomes analysis, parenchyma features"
     };
 
     return `<!DOCTYPE html>
@@ -387,7 +401,7 @@ export default function App() {
   <meta property="og:type" content="article">
   <meta property="og:title" content="${title}">
   <meta property="og:description" content="${desc}">
-  <meta property="og:image" content="REPLACE_WITH_IMAGE_URL">
+  <meta property="og:image" content="https://ankitstudypoint.blogspot.com/IMAGE_PATH_HERE.jpg">
   <meta property="og:url" content="${baseUrl}">
   
   <script type="application/ld+json">
