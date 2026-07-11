@@ -2,5 +2,7 @@
   "name": "Auto Notes Organizer | AnkitStudyPoint",
   "description": "Professional tool for D.Pharma and study notes organization. Converts raw text to structured SEO-friendly HTML and PDF with automatic link integration from AnkitStudyPoint.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

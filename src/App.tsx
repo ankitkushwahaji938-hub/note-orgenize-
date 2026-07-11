@@ -38,7 +38,7 @@ export default function App() {
   const [links, setLinks] = useState<ScrapingLink[]>([]);
   const [userName, setUserName] = useState(() => localStorage.getItem('asp_user') || '');
   const [theme, setTheme] = useState<'DARK' | 'LIGHT'>(() => (localStorage.getItem('asp_theme') as any) || 'DARK');
-  const [organizeMode, setOrganizeMode] = useState<'SIMPLE' | 'SMART' | 'EXAM'>(() => (localStorage.getItem('asp_mode') as any) || 'SIMPLE');
+  const [organizeMode, setOrganizeMode] = useState<'SIMPLE' | 'SMART' | 'EXAM' | 'HYBRID'>(() => (localStorage.getItem('asp_mode') as any) || 'SIMPLE');
   const [options, setOptions] = useState(() => {
     const saved = localStorage.getItem('asp_options');
     return saved ? JSON.parse(saved) : {
@@ -94,7 +94,7 @@ export default function App() {
       });
   }, []);
 
-  const organizeNotes = () => {
+  const organizeNotes = async () => {
     if (!inputText.trim()) {
       setStatus('EMPTY');
       return;
@@ -238,7 +238,7 @@ export default function App() {
           newBlocks.push({ type: 'point', text: highlightKeywords(displayText), num: pNum });
         }
       });
-    } else {
+    } else if (organizeMode === 'HYBRID') {
       const sentences = sanitizedText.split(/(?<=[.?!])\s+/);
       const groups: Record<string, string[]> = {};
       
@@ -251,8 +251,8 @@ export default function App() {
         if (!noDialogue) return;
 
         const score = scoreSentence(s);
-        // Relaxing score requirement for SMART mode
-        if (score < 0) return; 
+        // Relaxing score requirement for HYBRID mode backup to avoid blank notes
+        if (score < -1 && s.length < 20) return; 
 
         const compressed = smartCompress(s);
         let cat = getCategory(s);
@@ -290,6 +290,57 @@ export default function App() {
       });
     }
 
+    // Hybrid AI logical check:
+    // Pehle rule-based summary variables verify karein
+    const totalTextLength = newBlocks.map(b => b.text || '').join('').length;
+
+    if (organizeMode === 'SMART' || organizeMode === 'HYBRID' || totalTextLength < 50) {
+      console.log("SMART/HYBRID condition triggered! Running server-side Gemma AI summarization...");
+      setStatus('SUMMARIZING WITH GEMMA 3 AI...');
+      try {
+        const response = await fetch('/api/summarize-ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: inputText })
+        });
+        if (!response.ok) {
+          throw new Error('AI Summarizer failed with status: ' + response.status);
+        }
+        const data = await response.json();
+        
+        // Update SEO automatically from high quality AI values
+        setSeo({
+          title: data.title || seo.title,
+          desc: data.description || seo.desc,
+          keywords: data.keywords || seo.keywords
+        });
+
+        const aiBlocks: Block[] = data.blocks || [];
+        
+        if (options.includeBlogLinks && links.length > 0) {
+          aiBlocks.push({ type: 'heading', text: '🔗 RECENT FROM ANKITSTUDYPOINT' });
+          const shuffled = [...links].sort(() => 0.5 - Math.random()).slice(0, 4);
+          shuffled.forEach(link => {
+            aiBlocks.push({ type: 'link', text: link.title, url: link.url });
+          });
+        }
+
+        setBlocks(aiBlocks);
+        setStatus('DONE ✓');
+        showToast('Success: Gemma 3 AI Smart Notes Generated!');
+        return;
+      } catch (err: any) {
+        console.error('Gemma 3 AI summarizer call failed:', err);
+        if (organizeMode === 'SMART') {
+          setStatus('ERROR');
+          showToast('Gemma 3 AI failed! Please try again.', 'ERROR');
+          return;
+        }
+        showToast('Gemma 3 AI failed, displaying rule-based backup.', 'ERROR');
+      }
+    }
+
+    // Fallback to rule-based summary blocks if not Hybrid, or if Hybrid API failed
     const finalBlocks = [...newBlocks];
     if (options.includeBlogLinks && links.length > 0) {
       finalBlocks.push({ type: 'heading', text: '🔗 RECENT FROM ANKITSTUDYPOINT' });
@@ -312,7 +363,7 @@ export default function App() {
     }
 
     setStatus('DONE ✓');
-    showToast('Success: AI-Like Notes Generated!');
+    showToast('Success: Rule-Based notes organized!');
   };
 
   const clearAll = () => {
@@ -853,13 +904,19 @@ export default function App() {
                     className={`text-[9px] px-2 py-0.5 rounded font-bold border transition-all ${
                       organizeMode === 'SMART' ? 'bg-[#00e5a0] text-[#0d0f12] border-[#00e5a0]' : 'text-gray-500 border-gray-300'
                     }`}
-                 >SMART</button>
+                 >SMART (GEMMA 3)</button>
                  <button 
                     onClick={() => setOrganizeMode('EXAM')}
                     className={`text-[9px] px-2 py-0.5 rounded font-bold border transition-all ${
                       organizeMode === 'EXAM' ? 'bg-orange-500 text-white border-orange-500' : 'text-gray-500 border-gray-300'
                     }`}
                  >EXAM</button>
+                 <button 
+                    onClick={() => setOrganizeMode('HYBRID')}
+                    className={`text-[9px] px-2 py-0.5 rounded font-bold border transition-all ${
+                      organizeMode === 'HYBRID' ? 'bg-purple-600 text-white border-purple-600' : 'text-gray-500 border-gray-300'
+                    }`}
+                 >HYBRID (GEMMA 3)</button>
               </div>
             </div>
             
@@ -931,24 +988,6 @@ export default function App() {
               <div className="flex items-center gap-1.5 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
                 <div className={`w-1.5 h-1.5 rounded-full ${blogLinksStatus === 'READY' ? 'bg-green-400' : 'bg-yellow-400'}`}></div>
                 <span className="text-[9px] font-mono font-bold text-blue-400">SYNC: {blogLinksStatus}</span>
-              </div>
-            </div>
-            
-            <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 mb-5">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="text-xs font-bold text-orange-200 uppercase tracking-wide mb-1">GitHub Blank Page Fix?</h4>
-                  <p className="text-[10px] text-orange-200/70 leading-relaxed mb-3">
-                    If your GitHub link is white/blank, it's because GitHub can't read your source files directly. You need the <strong>Single-File Portable Version</strong>.
-                  </p>
-                  <button 
-                    onClick={downloadPortableVersion}
-                    className="w-full bg-orange-500 text-[#0d0f12] py-1.5 rounded-lg text-[10px] font-mono font-bold hover:bg-orange-400 transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Download className="w-3.5 h-3.5" /> Download Fixing index.html
-                  </button>
-                </div>
               </div>
             </div>
 

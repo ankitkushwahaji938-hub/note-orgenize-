@@ -1,10 +1,12 @@
 
+import 'dotenv/config';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { GoogleGenAI, Type } from "@google/genai";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +14,136 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Support JSON request bodies
+  app.use(express.json());
+
+  // Initialize Google GenAI client
+  const ai = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      }
+    }
+  });
+
+  // AI-powered Text Summarizer Endpoint (Hybrid fallback)
+  app.post('/api/summarize-ai', async (req, res) => {
+    try {
+      const { text } = req.body;
+      if (!text || text.trim().length === 0) {
+        return res.status(400).json({ error: "Text is required for summarization." });
+      }
+
+      const systemInstruction = `Aap ek bahut achha aur professional Text Summarizer assistant hain.
+
+Rules:
+- Text ko carefully padho aur samjho.
+- Sirf sabse important points aur main ideas ko rakho.
+- Summary short, clear aur natural Hindi mein likho (agar input Hindi ho to).
+- Agar English text ho to Hindi + English mix mein bhi likh sakte ho.
+- Redundant cheezein hatao.
+- Original text ka matlab badlo mat.
+- Summary ki length user ke hisaab se adjust karo.
+
+Agar text bahut lamba ho to important sections ko prioritize karo.
+Provide output in a structured JSON schema. Create proper sections (as headings), detailed bullet points, and definitions. Make sure to identify and highlight important biology keywords in capital letters wrapped in ** (e.g. **EPIDERMIS**, **TRICHOMES**, **PARENCHYMA**).`;
+
+      const userPrompt = `Niche diya gaya text ka summary banao:
+
+${text}
+
+Summary (Hindi mein, concise aur clear):`;
+
+      const modelsToTry = [
+        "gemini-2.5-flash",
+        "gemini-1.5-flash"
+      ];
+
+      let response;
+      let lastError = null;
+
+      for (const model of modelsToTry) {
+        try {
+          console.log(`Trying summarization using model: ${model}...`);
+          response = await ai.models.generateContent({
+            model: model,
+            contents: userPrompt,
+            config: {
+              systemInstruction,
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  title: {
+                    type: Type.STRING,
+                    description: "A highly engaging SEO title for the study notes based on the text."
+                  },
+                  description: {
+                    type: Type.STRING,
+                    description: "A professional brief meta description summary for Google Search."
+                  },
+                  keywords: {
+                    type: Type.STRING,
+                    description: "Search keywords or LSI terms, comma separated."
+                  },
+                  blocks: {
+                    type: Type.ARRAY,
+                    description: "Structured bullet notes matching sections.",
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        type: {
+                          type: Type.STRING,
+                          description: "Must be 'heading' or 'point' or 'def'."
+                        },
+                        text: {
+                          type: Type.STRING,
+                          description: "Heading text or Bullet point text (highlight keywords in uppercase with **)."
+                        },
+                        k: {
+                          type: Type.STRING,
+                          description: "If type is 'def', this is the term/key being defined."
+                        },
+                        v: {
+                          type: Type.STRING,
+                          description: "If type is 'def', this is the explanation/definition value."
+                        }
+                      },
+                      required: ["type"]
+                    }
+                  }
+                },
+                required: ["title", "description", "keywords", "blocks"]
+              }
+            }
+          });
+          if (response && response.text) {
+            console.log(`Successfully summarized using model: ${model}`);
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`Model ${model} failed: ${err.message}`);
+          lastError = err;
+        }
+      }
+
+      if (!response || !response.text) {
+        throw lastError || new Error("All model fallback options failed.");
+      }
+
+      if (!response.text) {
+        throw new Error("Empty response received from Gemini.");
+      }
+
+      const summaryData = JSON.parse(response.text.trim());
+      res.json(summaryData);
+    } catch (error: any) {
+      console.error('AI Summarizer Error:', error.message);
+      res.status(500).json({ error: 'Failed to generate AI summary', message: error.message });
+    }
+  });
 
   // API endpoint to fetch links from Blogspot
   app.get('/api/links', async (req, res) => {
